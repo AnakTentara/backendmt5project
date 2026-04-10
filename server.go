@@ -141,7 +141,7 @@ ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
 
 	reqBody := OpenAIRequest{
 		Model:     "gemini-3.1-flash-lite-preview",
-		WebSearch: true, // MATIKAN: Kunci gratis API tidak kuat menahan kuota pencarian berbayar Google.
+		WebSearch: false, // MATIKAN: Kunci gratis API tidak kuat menahan kuota pencarian berbayar Google.
 		Messages: []Message{
 			{Role: "system", Content: systemPersona},
 			{Role: "user", Content: promptString},
