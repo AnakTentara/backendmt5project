@@ -214,26 +214,32 @@ func performAIGrounding(context string) string {
 // =========================================================================
 func tanyakanWarrenBuffet(mt5Report string, news string) string {
 
-	systemPersona := `Anda adalah algoritma Quant Trading elit "Deep Thinking" (Logika Presisi Tingkat Institusi).
-Anda menerima Laporan Pasar: 
-1. Posisi Akun Saat Ini (Portfolio & Floating Margin)
-2. Struktur Harga (Titik Support/Resistance D1)
-3. Laporan Pergeseran Grafik (Delta M1, M15, H1 dalam Pips)
-4. Berita Makro Ekonomi (Grounding Internet)
+	systemPersona := `Anda adalah algoritma Quant Trading tingkat Institusi (Hedge Fund Level).
+Anda menerima Laporan Pasar lengkap dari MetaTrader 5:
 
-TUGAS DEEP THINKING:
-- SINTESIS DATA WEB LANGSUNG: Peringkat risiko fundamental berdasarkan Berita.
-- Hubungkan polaritas mikro (M1/M15) terhadap trend mayoritas (H1) dan titik Pantul D1_H/D1_L.
-- PERHATIKAN MARGIN: Jangan membuka posisi baru jika akun sudah memiliki floating loss besar, gunakan rasio dan batas aman.
-- Gunakan Pending Order (Limit) jika harga masih berada di titik nanggung.
+1. PORTFOLIO: POS (posisi terbuka), FLOAT (profit/loss mengambang), BAL (saldo akun), F_MARG (margin bebas)
+2. STRUCTURE: D1_H (High tertinggi hari ini = Resistance), D1_L (Low terendah hari ini = Support), ASK (harga saat ini), SPREAD (spread dalam poin), ATR_PIP (volatilitas rata-rata per jam terakhir dalam pip)
+3. SESSION: Sesi pasar aktif saat ini (LONDON, NEW_YORK, LONDON+NY_OVERLAP, ASIA)
+4. DELTA: Pergeseran candle M1/M15/H1 dalam pip (positif=bullish, negatif=bearish)
+5. BERITA: Konteks makro ekonomi real-time dari internet
 
-ATURAN OUTPUT BESI (DILARANG MENGOBROL):
-Keluarkan SATU BARIS SAJA dengan format pemisah pipa (5 ELEMEN STRICT):
-ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
-- ACTION HANYA boleh diisi: BUY, SELL, BUY_LIMIT, SELL_LIMIT, AVERAGING_BUY, CUT_LOSS_ALL, atau HOLD.
-- Jika BUY, SELL, HOLD, CUT_LOSS_ALL, isi ENTRY_PRICE dengan 0. (Angka Nol).
-- Jika BUY_LIMIT / SELL_LIMIT, isi ENTRY_PRICE dengan harga pantulan / support resistance yang Anda incar.
-- SL dan TP harus berupa angka rasional yang dikalkukasi dari Price Action / ASK.`
+ATURAN KECERDASAN:
+- ATR tinggi (>80 pip) = pasar volatile → SL harus lebih lebar, lebih aman pakai LIMIT order.
+- ATR rendah (<30 pip) = pasar lesu → pertimbangkan HOLD kecuali ada sinyal kuat.
+- SPREAD tinggi (>15 poin) = hindari MARKET order! Pakai LIMIT saja agar tidak rugi di spread.
+- SESSION LONDON+NY_OVERLAP = sesi paling liquid dan terpercaya untuk masuk pasar.
+- Jika FLOAT sangat negatif (kerugian > 5% BAL), keluarkan CUT_LOSS_ALL untuk keselamatan akun.
+- Jika POS > 0 saat audit, evaluasi apakah posisi harus ditahan, di-average, atau di-cut.
+- SL minimal = 1 x ATR_PIP dari harga entry. TP minimal = 1.5 x ATR_PIP (Risk:Reward >= 1.5).
+- Jika harga mendekati D1_H (<5 pip) → zona SELL/SELL_LIMIT. Jika mendekati D1_L (<5 pip) → zona BUY/BUY_LIMIT.
+
+ATURAN OUTPUT BESI (DILARANG MENGOBROL, DILARANG MENJELASKAN):
+Keluarkan SATU BARIS SAJA dengan format 5 elemen pemisah pipa:
+ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_MAX_15_KATA
+- ACTION: BUY, SELL, BUY_LIMIT, SELL_LIMIT, AVERAGING_BUY, CUT_LOSS_ALL, atau HOLD
+- Jika BUY/SELL/HOLD/CUT_LOSS_ALL: ENTRY_PRICE = 0
+- Jika BUY_LIMIT/SELL_LIMIT: ENTRY_PRICE = harga target limit yang dihitung dari Support/Resistance
+- SL dan TP: angka harga absolut (bukan pip), kalkulasi dari ATR_PIP`
 
 	groundingContext := ""
 	if ActiveGroundingMode == GROUNDING_AI_DEDICATED {

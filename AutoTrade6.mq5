@@ -4,7 +4,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Antigravity"
 #property link      "https://www.mql5.com"
-#property version   "6.20"
+#property version   "7.00"
 
 #include <Trade\Trade.mqh>
 CTrade trade;
@@ -15,14 +15,17 @@ input double   InpLotMultiplier    = 1.5;       // Faktor Darurat Martingale
 input int      InpBaseGridStep     = 1500;      // Poin Lapis Jaring AI
 input double   InpTargetProfitUSD  = 3.0;       // Target Bersih Keranjang
 input ulong    InpMagicNum         = 606606;
+input bool     InpSessionFilter    = true;      // Aktifkan Filter Sesi London+NY?
+input int      InpSessionStartUTC  = 7;         // Mulai Sesi (UTC Hour, Default: 7 = 14:00 WIB)
+input int      InpSessionEndUTC    = 21;        // Akhir Sesi (UTC Hour, Default: 21 = 04:00 WIB)
+input int      InpAITimeoutMs      = 8000;      // Timeout AI (ms) — kasih ruang untuk Grounding RSS
 
 int OnInit()
   {
    trade.SetExpertMagicNumber(InpMagicNum);
-   
-   // Polling 1 Detik, tetapi kita akan mengukur perpindahan Candle 1-Menit.
-   EventSetTimer(1); 
-   Print("AutoTrade6.2: Tri-Radar Intelligence Aktif! Menganalisa Paru-paru M1, M15, dan H1 secara Real-Time.");
+   EventSetTimer(1);
+   Print("✅ AutoTrade7 [The Oracle v7]: Sistem Multi-Pair Intelligence Aktif!");
+   Print("   Session Filter: ", InpSessionFilter ? "AKTIF (London+NY saja)" : "NONAKTIF (24 jam)");
    return(INIT_SUCCEEDED);
   }
 
@@ -77,6 +80,25 @@ void CancelAllPendingOrders()
          Print("🗑️ [Oracle] Pending Order lama dibatalkan. Menunggu instruksi Oracle terbaru.");
         }
      }
+}
+
+// ==========================================
+// CEK SESI TRADING (London + New York)
+// ==========================================
+bool IsActiveSession()
+  {
+   if(!InpSessionFilter) return true; // Filter dinonaktifkan, trading 24 jam
+   
+   MqlDateTime dt;
+   TimeToStruct(TimeGMT(), dt);
+   int hour = dt.hour;
+   
+   // London: 07:00 — 16:00 UTC
+   // New York: 13:00 — 22:00 UTC
+   // Overlap terpanas: 13:00 — 16:00 UTC (paling besar volume)
+   bool london = (hour >= InpSessionStartUTC && hour < 16);
+   bool newyork = (hour >= 13 && hour < InpSessionEndUTC);
+   return (london || newyork);
   }
 
 //+------------------------------------------------------------------+
@@ -149,9 +171,20 @@ void OnTimer()
       if(PositionsTotal() > 0) {
           static int skip_count = 0;
           skip_count++;
-          if(skip_count < 15) return; // Karena M1 bar switch tiap menit, ini skip hingga 15 menit
-          skip_count = 0; // Waktunya Oracle mengaudit portofolio!
+          if(skip_count < 15) return;
+          skip_count = 0;
       }
+
+      // ==========================================
+      // SESSION GATE: Block jika di luar jam ramai
+      // ==========================================
+      if(!IsActiveSession())
+        {
+         MqlDateTime dt;
+         TimeToStruct(TimeGMT(), dt);
+         Print("💤 [Oracle] Jam tidak aktif (UTC ", dt.hour, ":00). Session London+NY belum buka. HOLD.");
+         return;
+        }
       
       // Mengukur Kekuatan Pergerakan Lintas Waktu (Shift in Points)
       double m1_open = iOpen(_Symbol, PERIOD_M1, 1);
@@ -168,28 +201,45 @@ void OnTimer()
       
       double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double spread_cur = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD); // dalam poin
       
       int total_pos = PositionsTotal();
       double floating_profit = AccountInfoDouble(ACCOUNT_PROFIT);
       double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      double balance = AccountInfoDouble(ACCOUNT_BALANCE);
       double d1_high = iHigh(_Symbol, PERIOD_D1, 0);
-      double d1_low = iLow(_Symbol, PERIOD_D1, 0);
+      double d1_low  = iLow(_Symbol, PERIOD_D1, 0);
+      
+      // ATR (Average True Range) = ukuran volatilitas pasar saat ini (pip)
+      int atr_handle = iATR(_Symbol, PERIOD_H1, 14);
+      double atr_buf[]; ArraySetAsSeries(atr_buf, true);
+      double atr_pips = 0;
+      if(CopyBuffer(atr_handle, 0, 0, 1, atr_buf) > 0)
+         atr_pips = atr_buf[0] / _Point;
+      IndicatorRelease(atr_handle);
 
-      Print("⏳ [AutoTrade6]: Radar 3-Frame & Portofolio Aktif... Menunggu Balasan AI.");
+      MqlDateTime dt;
+      TimeToStruct(TimeGMT(), dt);
+      string session = (dt.hour >= 13 && dt.hour < 16) ? "LONDON+NY_OVERLAP" :
+                       (dt.hour >= 7 && dt.hour < 16)  ? "LONDON" :
+                       (dt.hour >= 16 && dt.hour < 22) ? "NEW_YORK" : "ASIA";
 
-      // Membuat Surat Pengajuan ke Meja Warren Buffett
-      string portofolio = StringFormat("POS:%d|FLOAT:%.2f|F_MARG:%.2f", total_pos, floating_profit, free_margin);
-      string structure = StringFormat("D1_H:%.5f|D1_L:%.5f|ASK:%.5f", d1_high, d1_low, ask);
+      Print("⏳ [Oracle v7] ", _Symbol, " | Sesi: ", session, " | Spread: ", spread_cur, " poin | ATR: ", DoubleToString(atr_pips, 0), " pip | Menunggu AI...");
 
-      string reportStruct = StringFormat("PORTFOLIO[%s] STRUCTURE[%s] DELTA[M1:%.0f|M15:%.0f|H1:%.0f]", portofolio, structure, m1_shift, m15_shift, h1_shift);
+      // Membuat Surat Pengajuan ke Meja Oracle
+      string portofolio = StringFormat("POS:%d|FLOAT:%.2f|BAL:%.2f|F_MARG:%.2f", total_pos, floating_profit, balance, free_margin);
+      string structure  = StringFormat("D1_H:%.5f|D1_L:%.5f|ASK:%.5f|SPREAD:%d|ATR_PIP:%.0f", d1_high, d1_low, ask, spread_cur, atr_pips);
+      string session_info = StringFormat("SESSION:%s", session);
+
+      string reportStruct = StringFormat("PORTFOLIO[%s] STRUCTURE[%s] SESSION[%s] DELTA[M1:%.0f|M15:%.0f|H1:%.0f]",
+                             portofolio, structure, session_info, m1_shift, m15_shift, h1_shift);
       
       char posData[], result[];
-      StringToCharArray(reportStruct, posData);
       string headers = "Content-Type: text/plain\r\n";
+      StringToCharArray(reportStruct, posData, 0, StringLen(reportStruct));
       
       ResetLastError();
-      // Memberikan Kelonggaran Timeout karena proses "Deep Thinking" Gemini cukup lama (2 Detik Max di lokal MT5)
-      int res = WebRequest("POST", InpServerUrl, headers, 2000, posData, result, headers);
+      int res = WebRequest("POST", InpServerUrl, headers, InpAITimeoutMs, posData, result, headers);
       
       if(res == 200)
         {
@@ -251,11 +301,18 @@ void OnTimer()
             Print("⚠️ Sinyal Tak Terbaca/Hold: ", answer);
            }
         }
-      else
-        {
-         Print("❌ GAGAL MENGHUBUNGI SERVER! Kode Balasan: ", res, " | Error System: ", GetLastError());
-         Print("PASTIKAN Port Firewall Ubuntu terbuka ATAU URL MQL5 sudah di-Whitelist di Options!");
-        }
+       else
+         {
+          int err = GetLastError();
+          string errDesc = "";
+          if(err == 4014)        errDesc = "URL tidak di-whitelist di MT5 Options!";
+          else if(res == -1)     errDesc = "Timeout! Server AI terlalu lambat (naikkan InpAITimeoutMs).";
+          else if(res == 404)    errDesc = "404: Endpoint tidak ditemukan di server.";
+          else if(res == 500)    errDesc = "500: Server AI error internal.";
+          else                   errDesc = "Error tidak diketahui.";
+          
+          Print("❌ [Oracle] GAGAL! HTTP:", res, " | SysErr:", err, " → ", errDesc);
+         }
      }
   }
 //+------------------------------------------------------------------+
