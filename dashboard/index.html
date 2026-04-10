@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Oracle v8 | Quant Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&family=Outfit:wght@600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="gradient-sphere sphere-1"></div>
+    <div class="gradient-sphere sphere-2"></div>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>THE ORACLE <span>v8</span></h1>
+                <p>Institutional Quant Engine</p>
+            </div>
+            <div class="status-indicator">
+                <span class="dot"></span>
+                <span id="sync-status">Real-time Synced</span>
+            </div>
+        </header>
+
+        <section class="kpi-grid">
+            <div class="kpi-card glass">
+                <h3>Live Equity</h3>
+                <h2 id="kpi-equity" class="text-glow">$0.00</h2>
+                <div class="kpi-meta">
+                    <span class="label">Balance:</span> <span id="kpi-balance">$0.00</span>
+                    <span class="label">Float:</span> <span id="kpi-floating" class="text-neutral">$0.00</span>
+                </div>
+            </div>
+            
+            <div class="kpi-card glass">
+                <h3>Max. Absolute Drawdown</h3>
+                <h2 id="kpi-drawdown" class="text-danger">$0.00</h2>
+                <p class="subtext">Kerugian terjauh dari Modal</p>
+            </div>
+
+            <div class="kpi-card glass">
+                <h3>Oracle Track Record</h3>
+                <div class="record-split">
+                    <div class="record-item">
+                        <span class="val text-success" id="kpi-wins">0</span>
+                        <span class="lbl">Victories</span>
+                    </div>
+                    <div class="record-item">
+                        <span class="val text-danger" id="kpi-losses">0</span>
+                        <span class="lbl">Disasters</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="chart-section glass">
+            <div class="section-header">
+                <h3>Cumulative Profit Growth (30 Days)</h3>
+            </div>
+            <div class="canvas-container">
+                <canvas id="growthChart"></canvas>
+            </div>
+        </section>
+
+        <section class="lessons-grid">
+            <div class="lesson-column glass">
+                <div class="section-header">
+                    <h3>🏆 Pola Kemenangan AI (Victories)</h3>
+                </div>
+                <div id="victories-list" class="list-container">
+                    <p class="loading-text">Memuat memori AI...</p>
+                </div>
+            </div>
+
+            <div class="lesson-column glass">
+                <div class="section-header">
+                    <h3>🚨 Analisis Kegagalan (Disasters)</h3>
+                </div>
+                <div id="disasters-list" class="list-container">
+                    <p class="loading-text">Memuat memori AI...</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
