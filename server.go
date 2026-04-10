@@ -12,7 +12,17 @@ import (
 	"time"
 )
 
+const (
+	GROUNDING_OFF = 0
+	GROUNDING_GO_SCRAPER = 1
+	GROUNDING_AI_DEDICATED = 2
+)
+
 var (
+	// Konfigurasi Mode Grounding
+	ActiveGroundingMode = GROUNDING_AI_DEDICATED
+	AIGroundingModel    = "gemma-4-26b-a4b-it"
+
 	// Berita Harian dari Internet (Bisa Terhubung Langsung dari ForexFactory API Lokal)
 	liveNewsData string = "Belum ada berita ditarik."
 
@@ -117,6 +127,78 @@ func beritaForexRoutine() {
 }
 
 // =========================================================================
+// DUAL GROUNDING SYSTEMS
+// =========================================================================
+func performScraperGrounding(context string) string {
+	fmt.Println("📡 [GoScraper] Menarik berita secara manual murni dari Go...")
+	// Simulasikan mini-scraper HTTP ke DuckDuckGo Lite.
+	url := "https://html.duckduckgo.com/html/?q=forex+market+news+today"
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "Gagal scrape internet via Go."
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	var snippets []string
+	parts := strings.Split(html, "class=\"result__snippet")
+	for i, p := range parts {
+		if i == 0 || len(snippets) >= 3 {
+			continue // ambil 3 teratas
+		}
+		idx1 := strings.Index(p, ">")
+		idx2 := strings.Index(p, "</a>")
+		if idx1 != -1 && idx2 != -1 && idx1 < idx2 {
+			text := p[idx1+1 : idx2]
+			text = strings.ReplaceAll(text, "<b>", "")
+			text = strings.ReplaceAll(text, "</b>", "")
+			snippets = append(snippets, text)
+		}
+	}
+	return "Berita Scraping Go: " + strings.Join(snippets, " | ")
+}
+
+func performAIGrounding(context string) string {
+	fmt.Println("📡 [AIGrounding] AI Khusus sedang menjelajah internet dengan model:", AIGroundingModel)
+	reqBody := OpenAIRequest{
+		Model:     AIGroundingModel,
+		WebSearch: true,
+		Messages: []Message{
+			{Role: "user", Content: "Browsing internet sekarang. Berikan ringkasan berita terpenting hari ini untuk market forex, maksimal 3 kalimat padat. Situasi pasar mt5 saat ini: " + context},
+		},
+	}
+	jsonValue, _ := json.Marshal(reqBody)
+
+	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return "Gagal menyiapkan request AIGrounding."
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "Gagal memanggil AIGrounding Server."
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var aiResp OpenAIResponse
+	json.Unmarshal(body, &aiResp)
+
+	if len(aiResp.Choices) > 0 {
+		return "Laporan Khusus AI Grounding: " + strings.TrimSpace(aiResp.Choices[0].Message.Content)
+	}
+
+	return "AI Grounding gagal mengembalikan data (Mungkin model salah atau terkena limit)."
+}
+
+// =========================================================================
 // DEEP THINKER ALGORITHM (MULTI-TIMEFRAME SYNTHESIS)
 // =========================================================================
 func tanyakanWarrenBuffet(mt5Report string, news string) string {
@@ -137,7 +219,14 @@ ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
 (ACTION hanya boleh: BUY, SELL, atau HOLD).
 (SL dan TP harus berupa angka harga rasional berdasar current_price).`
 
-	promptString := fmt.Sprintf("Data Radar MT5 Saat Ini: [%s]\nAgenda Ekonomi Hari Ini: [%s]", mt5Report, news)
+	groundingContext := ""
+	if ActiveGroundingMode == GROUNDING_AI_DEDICATED {
+		groundingContext = performAIGrounding(mt5Report)
+	} else if ActiveGroundingMode == GROUNDING_GO_SCRAPER {
+		groundingContext = performScraperGrounding(mt5Report)
+	}
+
+	promptString := fmt.Sprintf("Data Radar MT5 Saat Ini: [%s]\nAgenda Ekonomi Hari Ini: [%s]\nHasil Grounding Internet Live: [%s]", mt5Report, news, groundingContext)
 
 	reqBody := OpenAIRequest{
 		Model:     "gemini-3.1-flash-lite-preview",
