@@ -43,6 +43,9 @@ var (
 
 	mu        sync.Mutex
 	memoryMu  sync.Mutex
+
+	// Menyimpan data Tick-by-Tick terakhir dari MQL5 untuk web dashboard
+	LatestMT5Status = make(map[string]map[string]float64)
 )
 
 // =========================================================================
@@ -359,6 +362,9 @@ func main() {
 			}
 		}
 
+		// Update Data Real-Time untuk Web Dashboard
+		go updateLatestStatus(symbol, mt5Report)
+
 		mu.Lock()
 		currentNews := liveNewsData
 		mu.Unlock()
@@ -429,14 +435,152 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	fmt.Println("🚀 Antigravity Quant [The Oracle] v8 - Memory Edition Menyala!")
-	fmt.Println("📍 POST / → Konsultasi Oracle")
-	fmt.Println("📍 POST /feedback → Laporan Hasil Trade")
+	// Endpoint API: Web Dashboard Metrics
+	http.HandleFunc("/api/stats", handleApiStats)
+
+	// Endpoint Frontend
+	http.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.Dir("./dashboard"))))
+
+	fmt.Println("🚀 Antigravity Quant [The Oracle] v8 + Web Dashboard Menyala!")
+	fmt.Println("📍 POST /          → Konsultasi Oracle")
+	fmt.Println("📍 POST /feedback  → Laporan Hasil Trade")
+	fmt.Println("📍 GET  /dashboard → Buka Panel UI Web (Responsive)")
 	log.Fatal(http.ListenAndServe(":8880", nil))
+}
+
+// =========================================================================
+// DASHBOARD WEB ANALITYCS & EXTRACTOR
+// =========================================================================
+
+// Mengekstrak nilai spesifik dari regex/tag manual
+func extractValue(payload, key string) float64 {
+	// Contoh: "|FLOAT:-12.50|BAL:..."
+	idx := strings.Index(payload, key+":")
+	if idx == -1 {
+		return 0
+	}
+	sub := payload[idx+len(key)+1:]
+	end := strings.IndexAny(sub, "| \n\t]")
+	if end != -1 {
+		sub = sub[:end]
+	}
+	var val float64
+	fmt.Sscanf(sub, "%f", &val)
+	return val
+}
+
+func updateLatestStatus(symbol, payload string) {
+	mu.Lock()
+	defer mu.Unlock()
+	
+	if LatestMT5Status[symbol] == nil {
+		LatestMT5Status[symbol] = make(map[string]float64)
+	}
+	
+	LatestMT5Status[symbol]["BAL"] = extractValue(payload, "BAL")
+	LatestMT5Status[symbol]["FLOAT"] = extractValue(payload, "FLOAT")
+	LatestMT5Status[symbol]["F_MARG"] = extractValue(payload, "F_MARG")
+	LatestMT5Status[symbol]["POS"] = extractValue(payload, "POS")
+}
+
+func handleApiStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	mem := loadMemory()
+	pb := loadPelajaran()
+
+	type ChartPoint struct {
+		Date string  `json:"date"`
+		Val  float64 `json:"val"`
+	}
+
+	totalBalance := 0.0
+	totalFloating := 0.0
+	var overallChart []ChartPoint
+	
+	// Hitung PnL harian untuk Chart
+	dailyPnL := make(map[string]float64)
+
+	mu.Lock()
+	for _, status := range LatestMT5Status {
+		if val, exists := status["BAL"]; exists {
+			totalBalance += val
+		}
+		if val, exists := status["FLOAT"]; exists {
+			totalFloating += val
+		}
+	}
+	mu.Unlock()
+
+	// Proses data historis
+	for _, entries := range mem.History {
+		for _, e := range entries {
+			if e.Result == "WIN" || e.Result == "LOSS" || e.Result == "CUT" {
+				if len(e.Timestamp) >= 10 {
+					date := e.Timestamp[:10]
+					dailyPnL[date] += e.ProfitUSD
+				}
+			}
+		}
+	}
+
+	// Format ke Array dan Sortir by Date
+	var dates []string
+	for k := range dailyPnL {
+		dates = append(dates, k)
+	}
+	sort.Strings(dates)
+	
+	// Bangun balance chart semu berdasarkan balance saat ini mundur, 
+	// atau profit kumulatif harian maju. Kita pakai Cumulative Profit:
+	cumProfit := 0.0
+	for _, d := range dates {
+		cumProfit += dailyPnL[d]
+		overallChart = append(overallChart, ChartPoint{Date: d, Val: cumProfit})
+	}
+
+	// Hitung Max Drawdown Berdasarkan Sejarah Pelajaran (karena kita ga simpan full tick)
+	maxAbsDrawdown := 0.0
+	for _, dis := range pb.Disasters { // Disasters berisi pnl merah yg dibooked
+		if dis.ProfitUSD < defaultMin(maxAbsDrawdown, 0.0) {
+			maxAbsDrawdown = dis.ProfitUSD
+		}
+	}
+	// Atau jika ada trade loss besar di memory biasa
+	for _, entries := range mem.History {
+		for _, e := range entries {
+			if e.ProfitUSD < defaultMin(maxAbsDrawdown, 0.0) {
+				maxAbsDrawdown = e.ProfitUSD
+			}
+		}
+	}
+
+	equity := totalBalance + totalFloating
+
+	response := map[string]interface{}{
+		"equity": equity,
+		"balance": totalBalance,
+		"floating": totalFloating,
+		"max_abs_drawdown": maxAbsDrawdown,      // Absolute terbesar yang pernah hilang dalam 1 cut
+		"chart_data": overallChart,
+		"wins": pb.TotalVictories,
+		"losses": pb.TotalDisasters,
+		"latest_lessons": pb.Victories,      // Kita render ini di bawah
+		"latest_disasters": pb.Disasters,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 // helper min untuk Go <1.21
 func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func defaultMin(a, b float64) float64 {
 	if a < b {
 		return a
 	}
