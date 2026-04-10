@@ -9,7 +9,7 @@
 #include <Trade\Trade.mqh>
 CTrade trade;
 
-input string   InpServerUrl        = "http://103.93.129.117:8880/consult";
+input string   InpServerUrl        = "http://103.93.129.117:8880/"; // Gunakan Base URL agar tembus
 input double   InpInitialLot       = 0.01;      // Ukuran Lot Kesatuan
 input double   InpLotMultiplier    = 1.5;       // Faktor Darurat Martingale
 input int      InpBaseGridStep     = 1500;      // Poin Lapis Jaring AI

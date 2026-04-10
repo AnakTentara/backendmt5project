@@ -47,8 +47,8 @@ func main() {
 	// 1. Tarik Berita Forex Bebas Hambatan
 	go beritaForexRoutine()
 
-	// 2. Endpoint Deep Thinking untuk MQL5 (Dipanggil Setiap 1 Menit)
-	http.HandleFunc("/consult", func(w http.ResponseWriter, r *http.Request) {
+	// 2. Endpoint Deep Thinking untuk MQL5 (Menerima dari jalur manapun)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Harus POST", http.StatusMethodNotAllowed)
 			return
@@ -75,7 +75,7 @@ func main() {
 	})
 
 	fmt.Println("🚀 Antigravity Quant (Deep Thinking Engine) Menyala!")
-	fmt.Println("📍 Endpoint: POST http://103.93.129.117:8880/consult")
+	fmt.Println("📍 Endpoint: POST Terbuka di semua rute (Contoh: http://103.93.129.117:8880/)")
 	log.Fatal(http.ListenAndServe(":8880", nil))
 }
 
