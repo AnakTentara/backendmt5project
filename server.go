@@ -25,8 +25,9 @@ var (
 
 // Struktur HTTP API & ForexFactory
 type OpenAIRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	WebSearch bool      `json:"web_search,omitempty"`
 }
 type Message struct {
 	Role    string `json:"role"`
@@ -34,7 +35,8 @@ type Message struct {
 }
 type OpenAIResponse struct {
 	Choices []struct {
-		Message Message `json:"message"`
+		Message           Message                `json:"message"`
+		GroundingMetadata map[string]interface{} `json:"groundingMetadata,omitempty"`
 	} `json:"choices"`
 }
 type FFEvent struct {
@@ -62,8 +64,9 @@ func main() {
 		currentNews := liveNewsData
 		mu.Unlock()
 
-		fmt.Println("\n[Radar 5-Detik] Menerima Laporan Tri-Dimensi MT5:", mt5Report)
-		fmt.Println("[Deep Thinker] Sedang Meraba Makro Kalender Ekonomi dan Mikro Harga... (Memanggil Rotator Gemini)")
+		fmt.Println("\n[Radar 60-Detik] Menerima Laporan Tri-Dimensi MT5:", mt5Report)
+		fmt.Println("🔎 [Deep Thinker] Menyambungkan Infrastruktur ke Google Search (Grounding)...")
+		fmt.Println("   (Proses browsing mungkin memakan waktu hingga 20 detik...)")
 
 		// Proses Deep Thinking (Memanggil Gemini Rotator)
 		aiDecision := tanyakanWarrenBuffet(mt5Report, currentNews)
@@ -124,9 +127,9 @@ Anda menerima 2 Data:
 2. Berita Finansial Dunia Makro.
 
 TUGAS DEEP THINKING:
-- Hubungkan polaritas mikro (M1/M15) terhadap trend mayorita (H1). 
-- Deteksi apakah pergerakan M1 yang berlawanan dengan H1 adalah 'Pullover/Koreksi' emas untuk masuk pasar? Atau justru tanda awal kehancuran tren?
-- Padukan ini secara kuat dengan Berita Dunia.
+- SINTESIS DATA WEB LANGSUNG: Cari di internet terkait kejadian Politik, Finansial, dan Perang Timur Tengah secara Real-Time. Hubungkan dengan Laporan MT5 tersebut.
+- Hubungkan polaritas mikro (M1/M15) terhadap trend mayoritas (H1).
+- Deteksi apakah pergerakan mikro ini adalah 'Pullover/Koreksi' emas untuk masuk pasar? Atau justru tanda awal kehancuran tren?
 
 ATURAN OUTPUT BESI (DILARANG MENGOBROL):
 Keluarkan SATU BARIS SAJA dengan format pemisah pipa:
@@ -134,10 +137,11 @@ ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
 (ACTION hanya boleh: BUY, SELL, atau HOLD).
 (SL dan TP harus berupa angka harga rasional berdasar current_price).`
 
-	promptString := fmt.Sprintf("Data Radar 1-Menit MT5 Saat Ini: [%s]\nBerita Makro: [%s]", mt5Report, news)
+	promptString := fmt.Sprintf("Data Radar MT5 Saat Ini: [%s]\nAgenda Ekonomi Hari Ini: [%s]", mt5Report, news)
 
 	reqBody := OpenAIRequest{
 		Model: "gemini-3.1-flash-lite-preview",
+		WebSearch: true,
 		Messages: []Message{
 			{Role: "system", Content: systemPersona},
 			{Role: "user", Content: promptString},
@@ -168,6 +172,21 @@ ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
 	json.Unmarshal(body, &aiResp)
 
 	if len(aiResp.Choices) > 0 {
+		
+		// Deteksi apakah Grounding benar-benar dilakukan mesin
+		if aiResp.Choices[0].GroundingMetadata != nil {
+			fmt.Println("✅ [Deep Thinker] Google Search Grounding SELESAI! Data berhasil diserap dari Internet.")
+			chunks := aiResp.Choices[0].GroundingMetadata["groundingChunks"]
+			if chunks != nil {
+				// Hitung kasaran berapa banyak sumber web / chunk web yang diambil
+				if chunkList, ok := chunks.([]interface{}); ok {
+					fmt.Printf("   -> Terdapat %d keping informasi Real-Time yang diukur.\n", len(chunkList))
+				}
+			}
+		} else {
+			fmt.Println("⚠️ [Deep Thinker] AI menjawab tanpa membuka Browser Google.")
+		}
+
 		pesan := strings.TrimSpace(aiResp.Choices[0].Message.Content)
 		if !strings.Contains(pesan, "|") {
 			return "HOLD|0|0|AI Mengoceh Tidak Karuan"

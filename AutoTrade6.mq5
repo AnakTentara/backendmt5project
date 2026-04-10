@@ -152,6 +152,7 @@ void OnTimer()
       if(res == 200)
         {
          string answer = CharArrayToString(result);
+         Print("📡 [RAW AI OUTPUT] ", answer); // CCTV Transparansi Data Mentah
          string stringArray[];
          int partsCount = StringSplit(answer, '|', stringArray);
          
