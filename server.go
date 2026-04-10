@@ -20,8 +20,8 @@ const (
 
 var (
 	// Konfigurasi Mode Grounding
-	ActiveGroundingMode = GROUNDING_AI_DEDICATED
-	AIGroundingModel    = "gemini-3.1-pro-preview-customtools"
+	ActiveGroundingMode = GROUNDING_GO_SCRAPER // GROUNDING_AI_DEDICATED - kalo ada API Gemini yang bisa grounding
+	AIGroundingModel    = "gemma-4-26b-a4b-it" // isi Model Nama nya kalo dedicated
 
 	// Berita Harian dari Internet (Bisa Terhubung Langsung dari ForexFactory API Lokal)
 	liveNewsData string = "Belum ada berita ditarik."
