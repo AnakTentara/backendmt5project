@@ -140,8 +140,8 @@ ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
 	promptString := fmt.Sprintf("Data Radar MT5 Saat Ini: [%s]\nAgenda Ekonomi Hari Ini: [%s]", mt5Report, news)
 
 	reqBody := OpenAIRequest{
-		Model: "gemini-3.1-flash-lite-preview",
-		WebSearch: false, // MATIKAN: Kunci gratis API tidak kuat menahan kuota pencarian berbayar Google.
+		Model:     "gemini-3.1-flash-lite-preview",
+		WebSearch: true, // MATIKAN: Kunci gratis API tidak kuat menahan kuota pencarian berbayar Google.
 		Messages: []Message{
 			{Role: "system", Content: systemPersona},
 			{Role: "user", Content: promptString},
@@ -172,7 +172,7 @@ ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
 	json.Unmarshal(body, &aiResp)
 
 	if len(aiResp.Choices) > 0 {
-		
+
 		// Deteksi apakah Grounding benar-benar dilakukan mesin
 		if aiResp.Choices[0].GroundingMetadata != nil {
 			fmt.Println("✅ [Deep Thinker] Google Search Grounding SELESAI! Data berhasil diserap dari Internet.")
