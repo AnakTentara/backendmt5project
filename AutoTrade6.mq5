@@ -1,41 +1,34 @@
 //+------------------------------------------------------------------+
 //|                                                   AutoTrade6.mq5 |
-//|                                    The Field Agent (Post Output) |
+//|                             The Deep Thinking Agent (Tri-Radar)  |
 //+------------------------------------------------------------------+
 #property copyright "Antigravity"
 #property link      "https://www.mql5.com"
-#property version   "6.10"
+#property version   "6.20"
 
 #include <Trade\Trade.mqh>
 CTrade trade;
 
-input string   InpServerUrl        = "http://103.93.129.117:8880/consult"; // Endpoint KONSULTASI (POST)
-input double   InpInitialLot       = 0.01;      // Ukuran Lot Tembakan
+input string   InpServerUrl        = "http://103.93.129.117:8880/consult";
+input double   InpInitialLot       = 0.01;      // Ukuran Lot Kesatuan
 input double   InpLotMultiplier    = 1.5;       // Faktor Darurat Martingale
-input int      InpBaseGridStep     = 1500;      // Jarak Poin Jaring Darurat
-input double   InpTargetProfitUSD  = 3.0;       // Target Penutupan Sapu Bersih
-input ulong    InpMagicNum         = 606606;    // Magic Number The Executioner
-
-int handle_rsi;
-double rsi[];
-datetime last_consult_time = 0;
+input int      InpBaseGridStep     = 1500;      // Poin Lapis Jaring AI
+input double   InpTargetProfitUSD  = 3.0;       // Target Bersih Keranjang
+input ulong    InpMagicNum         = 606606;
 
 int OnInit()
   {
    trade.SetExpertMagicNumber(InpMagicNum);
-   handle_rsi = iRSI(_Symbol, PERIOD_M15, 14, PRICE_CLOSE);
-   ArraySetAsSeries(rsi, true);
    
-   // Polling 1 detik hanya untuk jaring. Konsultasi AI hanya dipicu anomali.
+   // Polling 1 Detik, tetapi kita akan mengukur perpindahan Candle 1-Menit.
    EventSetTimer(1); 
-   Print("AutoTrade6.1: Menjadi Agen Lapangan. Menunggu Pemicu (Trigger) Anomali...");
+   Print("AutoTrade6.2: Tri-Radar Intelligence Aktif! Menganalisa Paru-paru M1, M15, dan H1 secara Real-Time.");
    return(INIT_SUCCEEDED);
   }
 
 void OnDeinit(const int reason)
   {
    EventKillTimer();
-   IndicatorRelease(handle_rsi);
   }
 
 void CloseAllPositions()
@@ -48,7 +41,6 @@ void CloseAllPositions()
          trade.PositionClose(ticket);
         }
      }
-   Print("🤖🔥 AI SYSTEM BINGO! Seluruh keranjang berhasil dicetak menjadi Uang!");
   }
 
 double NormalizeLot(double lot)
@@ -62,7 +54,7 @@ double NormalizeLot(double lot)
   }
 
 //+------------------------------------------------------------------+
-//| JARING MARTINGALE KESELAMATAN (Berjalan Tiap Tick Tanpa Otak)    |
+//| KESELAMATAN: MARTINGALE JARING OTOMATIS (Tanpa AI)               |
 //+------------------------------------------------------------------+
 void OnTick()
   {
@@ -80,6 +72,7 @@ void OnTick()
          total_pos++;
          total_profit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
          grid_type = PositionGetInteger(POSITION_TYPE);
+         
          double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
          double vol = PositionGetDouble(POSITION_VOLUME);
          
@@ -102,82 +95,80 @@ void OnTick()
      {
       double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double distance_in_price = InpBaseGridStep * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+      double distance = InpBaseGridStep * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
       
-      if(grid_type == POSITION_TYPE_BUY && (extreme_price - ask >= distance_in_price))
+      if(grid_type == POSITION_TYPE_BUY && (extreme_price - ask >= distance))
          trade.Buy(NormalizeLot(highest_lot * InpLotMultiplier), _Symbol, ask, 0, 0, "Drone Layer [Buy]");
-      else if(grid_type == POSITION_TYPE_SELL && (bid - extreme_price >= distance_in_price))
+      else if(grid_type == POSITION_TYPE_SELL && (bid - extreme_price >= distance))
          trade.Sell(NormalizeLot(highest_lot * InpLotMultiplier), _Symbol, bid, 0, 0, "Drone Layer [Sell]");
      }
   }
 
 //+------------------------------------------------------------------+
-//| EVENT-DRIVEN TRIGGER: AGEN LAPANGAN MENGHANTAR DATA KE AI       |
+//| DEEP THINKING TRIGGER: PEMBACAAN 3-DIMENSI SETIAP 60 DETIK       |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   // Jika robot sedang bertempur (ada posisi), jangan tanya AI baru. 
-   // Fokus perang pakai Martingale. Biarkan AI istirahat.
+   // Biarkan pasukan Martingale berperang. Jangan ajak bicara AI jika portofolio sedang bahaya/berjalan.
    if(PositionsTotal() > 0) return;
 
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   datetime current = TimeCurrent();
+   static datetime last_m1_bar = 0;
+   datetime current_m1_bar = iTime(_Symbol, PERIOD_M1, 0);
 
-   // MENCEGAH SPAM: Hanya hubungi AI jika sudah lewat 5 Menit sejak pertanyaan terakhir
-   if(current - last_consult_time < 300) return;
-
-   // 1. ANOMALI RADAR (Scanner Data)
-   if(CopyBuffer(handle_rsi, 0, 1, 1, rsi) > 0)
+   // TRIGGER: Mengeksekusi Laporan HANYA saat lilin (candle) 1-Menit baru saja terbentuk
+   if(current_m1_bar != last_m1_bar)
      {
-      // TRIGGER BAHAYA: Tanyakan ke AI HANYA JIKA RSI menyentuh Area Sangat Murah / Sangat Mahal
-      // Inilah alasan kita tidak nge-spam WebRequest API tiap detik!
-      if(rsi[0] >= 70 || rsi[0] <= 30)
+      last_m1_bar = current_m1_bar;
+      
+      // Mengukur Kekuatan Pergerakan Lintas Waktu (Shift in Points)
+      double m1_open = iOpen(_Symbol, PERIOD_M1, 1);
+      double m1_close = iClose(_Symbol, PERIOD_M1, 1);
+      double m1_shift = (m1_close - m1_open) / _Point;
+
+      double m15_open = iOpen(_Symbol, PERIOD_M15, 1);
+      double m15_close = iClose(_Symbol, PERIOD_M15, 1);
+      double m15_shift = (m15_close - m15_open) / _Point;
+
+      double h1_open = iOpen(_Symbol, PERIOD_H1, 1);
+      double h1_close = iClose(_Symbol, PERIOD_H1, 1);
+      double h1_shift = (h1_close - h1_open) / _Point;
+      
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+      // Membuat Surat Pengajuan ke Meja Warren Buffett
+      string reportStruct = StringFormat("M1_PIPS:%.0f|M15_PIPS:%.0f|H1_PIPS:%.0f|HARGA:%.5f", m1_shift, m15_shift, h1_shift, ask);
+      
+      char posData[], result[];
+      StringToCharArray(reportStruct, posData);
+      string headers = "Content-Type: text/plain\r\n";
+      
+      ResetLastError();
+      // Memberikan Kelonggaran Timeout karena proses "Deep Thinking" Gemini cukup lama (2 Detik Max di lokal MT5)
+      int res = WebRequest("POST", InpServerUrl, headers, 2000, posData, result, headers);
+      
+      if(res == 200)
         {
-         // 2. PEMBENTUKAN LAPORAN INTELEJEN
-         string reportStruct = StringFormat("RSI:%.2f|HARGA:%.5f", rsi[0], ask);
+         string answer = CharArrayToString(result);
+         string stringArray[];
+         int partsCount = StringSplit(answer, '|', stringArray);
          
-         // 3. KIRIM LAPORAN (POST Request) KE WARREN BUFFETT
-         char posData[], result[];
-         StringToCharArray(reportStruct, posData);
-         string headers = "Content-Type: text/plain\r\n";
-         
-         ResetLastError();
-         int res = WebRequest("POST", InpServerUrl, headers, 1000, posData, result, headers);
-         
-         if(res == 200)
+         if(partsCount == 4)
            {
-            last_consult_time = current;
+            // FORMAT WAJIB GOOGLE GEMINI TADI: ACTION | SL | TP | REASON
+            string action = stringArray[0];
+            double sl_ai  = StringToDouble(stringArray[1]); 
+            double tp_ai  = StringToDouble(stringArray[2]); 
+            string reason = stringArray[3];
             
-            // 4. MEMBONGKAR (PARSING) ARAHAN AI
-            string answer = CharArrayToString(result);
-            string stringArray[];
-            int partsCount = StringSplit(answer, '|', stringArray);
+            Print("🧠 [Deep Thinker]: ", reason);
             
-            // Format yang ditunggu: ACTION|SL|TP|REASON
-            if(partsCount == 4)
-              {
-               string action = stringArray[0];
-               double sl_ai  = StringToDouble(stringArray[1]); // SL dinamis usulan AI, 0 berarti mati.
-               double tp_ai  = StringToDouble(stringArray[2]); // TP dinamis usulan AI
-               string reason = stringArray[3];
-               
-               Print("🗣️ [AI Berbicara]: ", reason);
-               
-               // Jika AI melarang, ia hanya komentar Hold.
-               if(action == "BUY")
-                 {
-                  trade.Buy(InpInitialLot, _Symbol, ask, sl_ai, tp_ai, "A.I: " + reason);
-                 }
-               else if(action == "SELL")
-                 {
-                  trade.Sell(InpInitialLot, _Symbol, bid, sl_ai, tp_ai, "A.I: " + reason);
-                 }
-              }
-            else
-              {
-               Print("Pesan Mesin Acak (Bukan Format). Pesan: ", answer);
-              }
+            if(action == "BUY") trade.Buy(InpInitialLot, _Symbol, ask, sl_ai, tp_ai, "A.I: ["+DoubleToString(m1_shift,0)+"/"+DoubleToString(h1_shift,0)+"]");
+            else if(action == "SELL") trade.Sell(InpInitialLot, _Symbol, bid, sl_ai, tp_ai, "A.I: ["+DoubleToString(m1_shift,0)+"/"+DoubleToString(h1_shift,0)+"]");
+           }
+         else
+           {
+            Print("⚠️ Sinyal Tak Terbaca/Hold: ", answer);
            }
         }
      }

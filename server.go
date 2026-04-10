@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	// Berita Harian dari Internet
-	liveNewsData string = "Belum ada berita ditarik." 
-	
-	// Konfigurasi API
-	apiKey     string = "MASUKKAN_KODE_RAHASIA_API_DISINI"
-	apiBaseUrl string = "https://ai.aikeigroup.net/v1/chat/completions"
-	
+	// Berita Harian dari Internet (Bisa Terhubung Langsung dari ForexFactory API Lokal)
+	liveNewsData string = "Belum ada berita ditarik."
+
+	// Konfigurasi Kunci API (Karena Anda memiliki server rotator, arahkan ke localhost Rotator Anda)
+	apiKey     string = "aduhkaboaw91h9i28hoablkdl09190jelnkaknldwa90hoi2"
+	apiBaseUrl string = "ai.aikeigroup.net/v1/chat/completions" // Arahkan ke Rotator Node.js
+
 	mu sync.Mutex
 )
 
@@ -44,18 +44,17 @@ type FFEvent struct {
 }
 
 func main() {
-	// 1. Tarik Berita Forex Asli di Background setiap Jam
+	// 1. Tarik Berita Forex Bebas Hambatan
 	go beritaForexRoutine()
 
-	// 2. Endpoint Konsultasi untuk MT5 (Bukan lagi asal polling tiap detik)
-	// MT5 hanya akan memanggil /consult jika indikatornya menyentuh batas bahaya
+	// 2. Endpoint Deep Thinking untuk MQL5 (Dipanggil Setiap 1 Menit)
 	http.HandleFunc("/consult", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Harus POST", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Membaca Laporan dari MT5 (Contoh: "RSI=82.5|PRICE=1.095")
+		// Membaca Laporan Tri-Dimensi: (Contoh: "M1:-10|M15:20|H1:-50|HARGA:1.0950")
 		body, _ := io.ReadAll(r.Body)
 		mt5Report := string(body)
 
@@ -63,79 +62,77 @@ func main() {
 		currentNews := liveNewsData
 		mu.Unlock()
 
-		fmt.Println("[MT5 Merapat] Laporan Lapangan Diterima:", mt5Report)
-		
-		// Lempar rapat ke Dewan Direksi (Gemini)
+		fmt.Println("\n[Radar 1-Menit] Menyensor Pergeseran Harga:", mt5Report)
+
+		// Proses Deep Thinking (Memanggil Gemini Rotator)
 		aiDecision := tanyakanWarrenBuffet(mt5Report, currentNews)
 
-		// Keluaran Presisi String (Contoh: "SELL|1.100|1.090")
+		// Respon Teks Telanjang (Contoh: "SELL|1.100|1.090|H1 Bearish dan M1 Koreksi")
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte(aiDecision))
 	})
 
-	fmt.Println("🚀 Antigravity Quant (Warren Buffett Engine) Menyala!")
-	fmt.Println("📍 Endpoint Konsultasi: POST http://127.0.0.1:8880/consult")
+	fmt.Println("🚀 Antigravity Quant (Deep Thinking Engine) Menyala!")
+	fmt.Println("📍 Endpoint: POST http://127.0.0.1:8880/consult")
 	log.Fatal(http.ListenAndServe(":8880", nil))
 }
 
 // =========================================================================
-// FITUR 1: RADAR BERITA DUNIA
+// SENSOR BERITA PUSAT
 // =========================================================================
 func beritaForexRoutine() {
 	for {
-		fmt.Println("[Radar] Mengorek Data Kalender Ekonomi ForexFactory...")
-		// Endpoint API gratis kalender minggu ini dari ForexFactory
 		resp, err := http.Get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
-		
+
 		if err == nil {
 			defer resp.Body.Close()
 			body, _ := io.ReadAll(resp.Body)
-			
 			var events []FFEvent
 			json.Unmarshal(body, &events)
-			
-			// Nyaring hanya berita "High Impact" (Merah) untuk Dolar dan Euro
-			penting := "Red Impact Hari Ini:\n"
+
+			penting := "Red Impact Forex Hari Ini:\n"
 			jumlah := 0
 			for _, ev := range events {
 				if ev.Impact == "High" && (ev.Country == "USD" || ev.Country == "EUR") {
-					penting += fmt.Sprintf("- Negara: %s | Berita: %s\n", ev.Country, ev.Title)
+					penting += fmt.Sprintf("- %s: %s\n", ev.Country, ev.Title)
 					jumlah++
 				}
 			}
-			
+
+			mu.Lock()
 			if jumlah > 0 {
-				mu.Lock()
 				liveNewsData = penting
-				mu.Unlock()
 			} else {
-				mu.Lock()
-				liveNewsData = "Tidak ada berita bahaya (High Impact) terdeteksi hari ini."
-				mu.Unlock()
+				liveNewsData = "Kondisi Berita Global: Tenang."
 			}
-			fmt.Println("[Radar Sukses] Data tersimpan di memori.")
+			mu.Unlock()
 		}
-		
-		// Cegah server kelelahan, cukup tarik jadwal sehari sekali/jam sekali
 		time.Sleep(1 * time.Hour)
 	}
 }
 
 // =========================================================================
-// FITUR 2: SANG DEWAN DIREKSI (GEMINI ANALIST)
+// DEEP THINKER ALGORITHM (MULTI-TIMEFRAME SYNTHESIS)
 // =========================================================================
 func tanyakanWarrenBuffet(mt5Report string, news string) string {
-	
-	systemPersona := `Anda adalah algoritma Quant Trading elit dengan logika setingkat Warren Buffett. Anda BENAR-BENAR bukan manusia. Jangan gunakan sapaan, jangan mengobrol. Anda adalah mesin penghitung matematika.
-Anda akan diberikan 2 Data: Data Grafik dari alat Anda (MT5), dan Berita Dunia. 
-TUGAS MUTLAK:
-Jika data menunjukan Overbought/Oversold dan membelakangi berita, ambil keputusan Buy/Sell/Hold.
-Kemudian, tentukan angka Take Profit (TP) dari perhitungan Anda sendiri.
-Keluarkan SATU BARIS saja dengan format mutlak:
-ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT
-Contoh keluaran: SELL|0|1.090|RSI Ekstrem Overbought dan Berita USD Bullish.`
 
-	promptString := fmt.Sprintf("Data Grafik Saat Ini: [%s]\nBerita Dunia Saat Ini: [%s]", mt5Report, news)
+	systemPersona := `Anda adalah algoritma Quant Trading elit "Deep Thinking" (Logika Presisi Tingkat Warren Buffett).
+Anda menerima 2 Data: 
+1. Laporan Pergeseran Grafik 3-Dimensi (Delta M1, M15, H1 dalam besaran Pips) dari MT5.
+2. Berita Finansial Dunia Makro.
+
+TUGAS DEEP THINKING:
+- Hubungkan polaritas mikro (M1/M15) terhadap trend mayorita (H1). 
+- Deteksi apakah pergerakan M1 yang berlawanan dengan H1 adalah 'Pullover/Koreksi' emas untuk masuk pasar? Atau justru tanda awal kehancuran tren?
+- Padukan ini secara kuat dengan Berita Dunia.
+
+ATURAN OUTPUT BESI (DILARANG MENGOBROL):
+Keluarkan SATU BARIS SAJA dengan format pemisah pipa:
+ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
+(ACTION hanya boleh: BUY, SELL, atau HOLD).
+(SL dan TP harus berupa angka harga rasional berdasar current_price).`
+
+	promptString := fmt.Sprintf("Data Radar 1-Menit MT5 Saat Ini: [%s]\nBerita Makro: [%s]", mt5Report, news)
 
 	reqBody := OpenAIRequest{
 		Model: "gemini-3.1-flash-lite-preview",
@@ -147,16 +144,21 @@ Contoh keluaran: SELL|0|1.090|RSI Ekstrem Overbought dan Berita USD Bullish.`
 
 	jsonValue, _ := json.Marshal(reqBody)
 
-	// Persiapan Tembak
+	// Pastikan url ini merujuk ke API GEMINI Anda / Rotator Node Anda
 	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
-	if err != nil { return "HOLD|0|0|Error Server Lokal" }
+	if err != nil {
+		return "HOLD|0|0|Error Internal HTTP Server"
+	}
 
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Karena menggunakan Rotator dan Deep Think, beri waktu pikir luas
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil { return "HOLD|0|0|Gagal menghubungi API Gemini" }
+	if err != nil {
+		return "HOLD|0|0|Gagal menghubungi Node JS Rotator Gemini"
+	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
@@ -165,12 +167,11 @@ Contoh keluaran: SELL|0|1.090|RSI Ekstrem Overbought dan Berita USD Bullish.`
 
 	if len(aiResp.Choices) > 0 {
 		pesan := strings.TrimSpace(aiResp.Choices[0].Message.Content)
-		// Pastikan mesin mematuhi format pemisah pipa "|"
 		if !strings.Contains(pesan, "|") {
-			return "HOLD|0|0|Mesin Salah Memberi Format Output"
+			return "HOLD|0|0|AI Mengoceh Tidak Karuan"
 		}
 		return pesan
 	}
 
-	return "HOLD|0|0|Kosong"
+	return "HOLD|0|0|Rotator Kosong"
 }
