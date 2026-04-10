@@ -53,6 +53,32 @@ double NormalizeLot(double lot)
    return safe;
   }
 
+// Cek apakah sudah ada pending order aktif milik EA ini
+bool HasPendingOrder()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = OrderGetTicket(i);
+      if(OrderGetString(ORDER_SYMBOL) == _Symbol && OrderGetInteger(ORDER_MAGIC) == InpMagicNum)
+         return true;
+     }
+   return false;
+  }
+
+// Batalkan semua pending order milik EA ini (untuk refresh Oracle terbaru)
+void CancelAllPendingOrders()
+  {
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = OrderGetTicket(i);
+      if(OrderGetString(ORDER_SYMBOL) == _Symbol && OrderGetInteger(ORDER_MAGIC) == InpMagicNum)
+        {
+         trade.OrderDelete(ticket);
+         Print("🗑️ [Oracle] Pending Order lama dibatalkan. Menunggu instruksi Oracle terbaru.");
+        }
+     }
+  }
+
 //+------------------------------------------------------------------+
 //| KESELAMATAN: MARTINGALE JARING OTOMATIS (Tanpa AI)               |
 //+------------------------------------------------------------------+
@@ -197,10 +223,26 @@ void OnTimer()
                trade.Buy(InpInitialLot, _Symbol, ask, sl_ai, tp_ai, "A.I MARKET");
             else if(action == "SELL") 
                trade.Sell(InpInitialLot, _Symbol, bid, sl_ai, tp_ai, "A.I MARKET");
-            else if(action == "BUY_LIMIT") 
-               trade.BuyLimit(InpInitialLot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
-            else if(action == "SELL_LIMIT") 
-               trade.SellLimit(InpInitialLot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
+            else if(action == "BUY_LIMIT")
+               {
+                if(HasPendingOrder())
+                  {
+                   Print("🔄 [Oracle] Pending order lama terdeteksi. Refresh dengan instruksi terbaru...");
+                   CancelAllPendingOrders();
+                  }
+                trade.BuyLimit(InpInitialLot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
+                Print("✅ [Oracle] BUY_LIMIT dipasang di ", DoubleToString(entry_ai, 5));
+               }
+            else if(action == "SELL_LIMIT")
+               {
+                if(HasPendingOrder())
+                  {
+                   Print("🔄 [Oracle] Pending order lama terdeteksi. Refresh dengan instruksi terbaru...");
+                   CancelAllPendingOrders();
+                  }
+                trade.SellLimit(InpInitialLot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
+                Print("✅ [Oracle] SELL_LIMIT dipasang di ", DoubleToString(entry_ai, 5));
+               }
             else if(StringFind(action, "AVERAGING") != -1 && action == "AVERAGING_BUY") 
                trade.Buy(NormalizeLot(InpInitialLot*2), _Symbol, ask, sl_ai, tp_ai, "A.I AVG UP");
            }
