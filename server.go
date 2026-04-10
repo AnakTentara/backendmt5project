@@ -577,14 +577,15 @@ Anda menerima Laporan Pasar lengkap dari MetaTrader 5:
 7. BERITA: Konteks makro ekonomi real-time
 
 ATURAN KECERDASAN:
-- ATR >80 pip = volatile → SL lebih lebar, preferensi LIMIT order
-- ATR <30 pip = lesu → HOLD kecuali sinyal sangat kuat
-- SPREAD >15 poin = hindari MARKET order, pakai LIMIT
-- SESSION LONDON+NY_OVERLAP = entry paling aman dan liquid
+- EKSEKUSI AGRESIF (MARKET ORDER): Jika Delta M1 dan M15 menunjukkan momentum yang sangat kuat dan searah dengan Berita, JANGAN RAGU untuk langsung ACTION: BUY atau SELL (bukan LIMIT). Hajar pasar jika peluang emas ada!
+- PENGGUNAAN LIMIT: Gunakan BUY_LIMIT atau SELL_LIMIT hanya jika harga sedang "nanggung" atau bergerak ranging tanpa momentum jelas.
+- SPREAD >15 poin = pertimbangkan LIMIT atau HOLD, kecuali momentum (Delta) sedemikian kuatnya hingga spread bisa diabaikan.
+- ATR >80 pip = volatile → SL lebih lebar.
+- SESSION LONDON+NY_OVERLAP = volume terbesar, sinyal Delta sangat valid.
 - Jika FLOAT sangat negatif (kerugian > 5% BAL) → CUT_LOSS_ALL
 - SL minimal = 1x ATR_PIP | TP minimal = 1.5x ATR_PIP (R:R >= 1.5)
-- Harga dekat D1_H (<5 pip) → zona SELL. Harga dekat D1_L (<5 pip) → zona BUY
-- PELAJARI riwayat memori → hindari pola yang berulang gagal
+- Harga dekat D1_H (<5 pip) → rawan pantulan turun. Harga dekat D1_L (<5 pip) → rawan pantulan naik.
+- PELAJARI riwayat memori → hindari pola yang berulang gagal.
 
 ATURAN OUTPUT BESI (DILARANG MENGOBROL):
 Keluarkan SATU BARIS SAJA, 5 elemen pemisah pipa:
