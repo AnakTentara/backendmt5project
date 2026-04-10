@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	GROUNDING_OFF = 0
-	GROUNDING_GO_SCRAPER = 1
+	GROUNDING_OFF          = 0
+	GROUNDING_GO_SCRAPER   = 1
 	GROUNDING_AI_DEDICATED = 2
 )
 
 var (
 	// Konfigurasi Mode Grounding
 	ActiveGroundingMode = GROUNDING_AI_DEDICATED
-	AIGroundingModel    = "gemma-4-26b-a4b-it"
+	AIGroundingModel    = "gemini-3.1-pro-preview-customtools"
 
 	// Berita Harian dari Internet (Bisa Terhubung Langsung dari ForexFactory API Lokal)
 	liveNewsData string = "Belum ada berita ditarik."
