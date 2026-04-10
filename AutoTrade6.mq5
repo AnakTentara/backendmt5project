@@ -82,6 +82,37 @@ void CancelAllPendingOrders()
      }
 }
 
+// Hitung total posisi khusus EA dan pair ini saja
+int GetEAPositionsTotal()
+  {
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == InpMagicNum)
+         count++;
+     }
+   return count;
+  }
+
+// Mengirim hasil akhir trade ke server Oracle
+void SendFeedback(string result, double profit, double balance)
+  {
+   string payload = StringFormat("%s|%s|%.2f|%.2f|%s", _Symbol, result, profit, balance, "BASKET_CLOSED");
+   char data[], res[];
+   StringToCharArray(payload, data, 0, StringLen(payload));
+   string headers = "Content-Type: text/plain\r\n";
+   string feedbackUrl = InpServerUrl;
+   if(StringSubstr(feedbackUrl, StringLen(feedbackUrl)-1) != "/") feedbackUrl += "/";
+   feedbackUrl += "feedback";
+   
+   int httpRes = WebRequest("POST", feedbackUrl, headers, 4000, data, res, headers);
+   if(httpRes == 200) 
+      Print("💬 [Oracle Feedback] Laporan terkirim: ", result, " | Profit: $", DoubleToString(profit, 2));
+   else
+      Print("❌ [Oracle Feedback] Gagal mengirim laporan. HTTP: ", httpRes);
+  }
+
 // ==========================================
 // CEK SESI TRADING (London + New York)
 // ==========================================
@@ -168,7 +199,31 @@ void OnTimer()
      {
       last_m1_bar = current_m1_bar;
       
-      if(PositionsTotal() > 0) {
+      // ==========================================
+      // BASKET PNL TRACKER & FEEDBACK LOOP
+      // ==========================================
+      int current_pos = GetEAPositionsTotal();
+      static int last_pos = 0;
+      static double last_balance = 0;
+      
+      if(last_pos == 0 && current_pos > 0)
+        {
+         // Waktu pertama kali buka posisi, catat balance awal
+         last_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+        }
+      else if(last_pos > 0 && current_pos == 0)
+        {
+         // Semua posisi tertutup (karena TP, SL, atau Cut Loss)
+         double profit = AccountInfoDouble(ACCOUNT_BALANCE) - last_balance;
+         string result = "LOSS";
+         if(profit > 0) result = "WIN";
+         else if(profit == 0) result = "CUT";
+         
+         SendFeedback(result, profit, AccountInfoDouble(ACCOUNT_BALANCE));
+        }
+      last_pos = current_pos;
+      
+      if(current_pos > 0) {
           static int skip_count = 0;
           skip_count++;
           if(skip_count < 15) return;
@@ -227,12 +282,13 @@ void OnTimer()
       Print("⏳ [Oracle v7] ", _Symbol, " | Sesi: ", session, " | Spread: ", spread_cur, " poin | ATR: ", DoubleToString(atr_pips, 0), " pip | Menunggu AI...");
 
       // Membuat Surat Pengajuan ke Meja Oracle
-      string portofolio = StringFormat("POS:%d|FLOAT:%.2f|BAL:%.2f|F_MARG:%.2f", total_pos, floating_profit, balance, free_margin);
+      // Mengirimkan format yang menyertakan 'SYMBOL:' agar server.go bisa memilah memory berdasarkan pair
+      string portofolio = StringFormat("POS:%d|FLOAT:%.2f|BAL:%.2f|F_MARG:%.2f", current_pos, floating_profit, balance, free_margin);
       string structure  = StringFormat("D1_H:%.5f|D1_L:%.5f|ASK:%.5f|SPREAD:%d|ATR_PIP:%.0f", d1_high, d1_low, ask, spread_cur, atr_pips);
       string session_info = StringFormat("SESSION:%s", session);
 
-      string reportStruct = StringFormat("PORTFOLIO[%s] STRUCTURE[%s] SESSION[%s] DELTA[M1:%.0f|M15:%.0f|H1:%.0f]",
-                             portofolio, structure, session_info, m1_shift, m15_shift, h1_shift);
+      string reportStruct = StringFormat("SYMBOL:%s PORTFOLIO[%s] STRUCTURE[%s] SESSION[%s] DELTA[M1:%.0f|M15:%.0f|H1:%.0f]",
+                             _Symbol, portofolio, structure, session_info, m1_shift, m15_shift, h1_shift);
       
       char posData[], result[];
       string headers = "Content-Type: text/plain\r\n";
