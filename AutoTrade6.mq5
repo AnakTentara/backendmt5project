@@ -105,20 +105,20 @@ void OnTick()
   }
 
 //+------------------------------------------------------------------+
-//| DEEP THINKING TRIGGER: PEMBACAAN 3-DIMENSI SETIAP 5 DETIK        |
+//| DEEP THINKING TRIGGER: PEMBACAAN SETIAP GANTI LILIN 1-MENIT      |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
    // Biarkan pasukan Martingale berperang. Jangan ajak bicara AI jika portofolio sedang bahaya/berjalan.
    if(PositionsTotal() > 0) return;
 
-   static datetime last_consult_time = 0;
-   datetime current = TimeCurrent();
+   static datetime last_m1_bar = 0;
+   datetime current_m1_bar = iTime(_Symbol, PERIOD_M1, 0);
 
-   // TRIGGER: Mengeksekusi Laporan HANYA setiap kelipatan 5 Detik! (Sangat Cerewet / HFT Mode)
-   if(current - last_consult_time >= 5)
+   // TRIGGER: Mengeksekusi Laporan HANYA saat lilin (candle) 1-Menit baru berlalu (Tepat 60 Detik Sinkron)
+   if(current_m1_bar != last_m1_bar)
      {
-      last_consult_time = current;
+      last_m1_bar = current_m1_bar;
       
       // Mengukur Kekuatan Pergerakan Lintas Waktu (Shift in Points)
       double m1_open = iOpen(_Symbol, PERIOD_M1, 1);
@@ -172,6 +172,11 @@ void OnTimer()
            {
             Print("⚠️ Sinyal Tak Terbaca/Hold: ", answer);
            }
+        }
+      else
+        {
+         Print("❌ GAGAL MENGHUBUNGI SERVER! Kode Balasan: ", res, " | Error System: ", GetLastError());
+         Print("PASTIKAN Port Firewall Ubuntu terbuka ATAU URL MQL5 sudah di-Whitelist di Options!");
         }
      }
   }
