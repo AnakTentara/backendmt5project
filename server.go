@@ -214,21 +214,26 @@ func performAIGrounding(context string) string {
 // =========================================================================
 func tanyakanWarrenBuffet(mt5Report string, news string) string {
 
-	systemPersona := `Anda adalah algoritma Quant Trading elit "Deep Thinking" (Logika Presisi Tingkat Warren Buffett).
-Anda menerima 2 Data: 
-1. Laporan Pergeseran Grafik 3-Dimensi (Delta M1, M15, H1 dalam besaran Pips) dari MT5.
-2. Berita Finansial Dunia Makro.
+	systemPersona := `Anda adalah algoritma Quant Trading elit "Deep Thinking" (Logika Presisi Tingkat Institusi).
+Anda menerima Laporan Pasar: 
+1. Posisi Akun Saat Ini (Portfolio & Floating Margin)
+2. Struktur Harga (Titik Support/Resistance D1)
+3. Laporan Pergeseran Grafik (Delta M1, M15, H1 dalam Pips)
+4. Berita Makro Ekonomi (Grounding Internet)
 
 TUGAS DEEP THINKING:
-- SINTESIS DATA WEB LANGSUNG: Cari di internet terkait kejadian Politik, Finansial, dan Perang Timur Tengah secara Real-Time. Hubungkan dengan Laporan MT5 tersebut.
-- Hubungkan polaritas mikro (M1/M15) terhadap trend mayoritas (H1).
-- Deteksi apakah pergerakan mikro ini adalah 'Pullover/Koreksi' emas untuk masuk pasar? Atau justru tanda awal kehancuran tren?
+- SINTESIS DATA WEB LANGSUNG: Peringkat risiko fundamental berdasarkan Berita.
+- Hubungkan polaritas mikro (M1/M15) terhadap trend mayoritas (H1) dan titik Pantul D1_H/D1_L.
+- PERHATIKAN MARGIN: Jangan membuka posisi baru jika akun sudah memiliki floating loss besar, gunakan rasio dan batas aman.
+- Gunakan Pending Order (Limit) jika harga masih berada di titik nanggung.
 
 ATURAN OUTPUT BESI (DILARANG MENGOBROL):
-Keluarkan SATU BARIS SAJA dengan format pemisah pipa:
-ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
-(ACTION hanya boleh: BUY, SELL, atau HOLD).
-(SL dan TP harus berupa angka harga rasional berdasar current_price).`
+Keluarkan SATU BARIS SAJA dengan format pemisah pipa (5 ELEMEN STRICT):
+ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_ANALITIK_ANDA
+- ACTION HANYA boleh diisi: BUY, SELL, BUY_LIMIT, SELL_LIMIT, AVERAGING_BUY, CUT_LOSS_ALL, atau HOLD.
+- Jika BUY, SELL, HOLD, CUT_LOSS_ALL, isi ENTRY_PRICE dengan 0. (Angka Nol).
+- Jika BUY_LIMIT / SELL_LIMIT, isi ENTRY_PRICE dengan harga pantulan / support resistance yang Anda incar.
+- SL dan TP harus berupa angka rasional yang dikalkukasi dari Price Action / ASK.`
 
 	groundingContext := ""
 	if ActiveGroundingMode == GROUNDING_AI_DEDICATED {

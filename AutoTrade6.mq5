@@ -109,8 +109,8 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   // Biarkan pasukan Martingale berperang. Jangan ajak bicara AI jika portofolio sedang bahaya/berjalan.
-   if(PositionsTotal() > 0) return;
+   // Biarkan pasukan Martingale berperang. Jangan ajak bicara AI jika portofolio sedang bahaya/berjalan, KECUALI SETIAP 15 MENIT UNTUK AUDIT.
+   // if(PositionsTotal() > 0) return; // Dihapus, karena AI sekarang pintar memanajemen portofolio!
 
    static datetime last_m1_bar = 0;
    datetime current_m1_bar = iTime(_Symbol, PERIOD_M1, 0);
@@ -119,6 +119,13 @@ void OnTimer()
    if(current_m1_bar != last_m1_bar)
      {
       last_m1_bar = current_m1_bar;
+      
+      if(PositionsTotal() > 0) {
+          static int skip_count = 0;
+          skip_count++;
+          if(skip_count < 15) return; // Karena M1 bar switch tiap menit, ini skip hingga 15 menit
+          skip_count = 0; // Waktunya Oracle mengaudit portofolio!
+      }
       
       // Mengukur Kekuatan Pergerakan Lintas Waktu (Shift in Points)
       double m1_open = iOpen(_Symbol, PERIOD_M1, 1);
@@ -135,11 +142,20 @@ void OnTimer()
       
       double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      
+      int total_pos = PositionsTotal();
+      double floating_profit = AccountInfoDouble(ACCOUNT_PROFIT);
+      double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+      double d1_high = iHigh(_Symbol, PERIOD_D1, 0);
+      double d1_low = iLow(_Symbol, PERIOD_D1, 0);
 
-      Print("⏳ [AutoTrade6]: Menghitung M1(", DoubleToString(m1_shift,0), "), M15(", DoubleToString(m15_shift,0), "), H1(", DoubleToString(h1_shift,0), ")... Menunggu Balasan AI.");
+      Print("⏳ [AutoTrade6]: Radar 3-Frame & Portofolio Aktif... Menunggu Balasan AI.");
 
       // Membuat Surat Pengajuan ke Meja Warren Buffett
-      string reportStruct = StringFormat("M1_PIPS:%.0f|M15_PIPS:%.0f|H1_PIPS:%.0f|HARGA:%.5f", m1_shift, m15_shift, h1_shift, ask);
+      string portofolio = StringFormat("POS:%d|FLOAT:%.2f|F_MARG:%.2f", total_pos, floating_profit, free_margin);
+      string structure = StringFormat("D1_H:%.5f|D1_L:%.5f|ASK:%.5f", d1_high, d1_low, ask);
+
+      string reportStruct = StringFormat("PORTFOLIO[%s] STRUCTURE[%s] DELTA[M1:%.0f|M15:%.0f|H1:%.0f]", portofolio, structure, m1_shift, m15_shift, h1_shift);
       
       char posData[], result[];
       StringToCharArray(reportStruct, posData);
@@ -156,18 +172,37 @@ void OnTimer()
          string stringArray[];
          int partsCount = StringSplit(answer, '|', stringArray);
          
-         if(partsCount == 4)
+         if(partsCount >= 5)
            {
-            // FORMAT WAJIB GOOGLE GEMINI TADI: ACTION | SL | TP | REASON
-            string action = stringArray[0];
-            double sl_ai  = StringToDouble(stringArray[1]); 
-            double tp_ai  = StringToDouble(stringArray[2]); 
-            string reason = stringArray[3];
+            // FORMAT WAJIB: ACTION | ENTRY_PRICE | SL | TP | REASON
+            string action    = stringArray[0];
+            double entry_ai  = StringToDouble(stringArray[1]);
+            double sl_ai     = StringToDouble(stringArray[2]); 
+            double tp_ai     = StringToDouble(stringArray[3]); 
+            string reason    = stringArray[4];
             
+            StringTrimLeft(action); StringTrimRight(action);
             Print("🧠 [Deep Thinker]: ", reason);
             
-            if(action == "BUY") trade.Buy(InpInitialLot, _Symbol, ask, sl_ai, tp_ai, "A.I: ["+DoubleToString(m1_shift,0)+"/"+DoubleToString(h1_shift,0)+"]");
-            else if(action == "SELL") trade.Sell(InpInitialLot, _Symbol, bid, sl_ai, tp_ai, "A.I: ["+DoubleToString(m1_shift,0)+"/"+DoubleToString(h1_shift,0)+"]");
+            if(action == "CUT_LOSS_ALL" || action == "CUT_LOSS")
+              {
+               Print("⚠️ A.I MENGINSTRUKSIKAN SIKAP DEFENTIF: MANUVER CUT LOSS DIJALANKAN!");
+               CloseAllPositions();
+              }
+            else if(action == "HOLD") 
+              {
+                // Do nothing
+              }
+            else if(action == "BUY") 
+               trade.Buy(InpInitialLot, _Symbol, ask, sl_ai, tp_ai, "A.I MARKET");
+            else if(action == "SELL") 
+               trade.Sell(InpInitialLot, _Symbol, bid, sl_ai, tp_ai, "A.I MARKET");
+            else if(action == "BUY_LIMIT") 
+               trade.BuyLimit(InpInitialLot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
+            else if(action == "SELL_LIMIT") 
+               trade.SellLimit(InpInitialLot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
+            else if(StringFind(action, "AVERAGING") != -1 && action == "AVERAGING_BUY") 
+               trade.Buy(NormalizeLot(InpInitialLot*2), _Symbol, ask, sl_ai, tp_ai, "A.I AVG UP");
            }
          else
            {
