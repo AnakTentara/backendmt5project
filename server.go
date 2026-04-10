@@ -13,130 +13,164 @@ import (
 )
 
 var (
-	// State Memori yang dijaga untuk di-polling oleh MT5
-	currentSignal string = "NEUTRAL" 
+	// Berita Harian dari Internet
+	liveNewsData string = "Belum ada berita ditarik." 
 	
-	// Konfigurasi Private API (Rotating API Gemini Node)
-	apiKey     string = "aduhkaboaw91h9i28hoablkdl09190jelnkaknldwa90hoi2"
+	// Konfigurasi API
+	apiKey     string = "MASUKKAN_KODE_RAHASIA_API_DISINI"
 	apiBaseUrl string = "https://ai.aikeigroup.net/v1/chat/completions"
 	
 	mu sync.Mutex
 )
 
-// Struktur Format OpenAI (Sesuai dengan Snippet GitHub Anda)
+// Struktur HTTP API & ForexFactory
 type OpenAIRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
 }
-
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
-
 type OpenAIResponse struct {
 	Choices []struct {
 		Message Message `json:"message"`
 	} `json:"choices"`
 }
+type FFEvent struct {
+	Title   string `json:"title"`
+	Impact  string `json:"impact"`
+	Country string `json:"country"`
+}
 
 func main() {
-	// Menjalankan Otak AI Menganalisa Data Secara Asynchronous di Background
-	go aiRutinitasOtak()
+	// 1. Tarik Berita Forex Asli di Background setiap Jam
+	go beritaForexRoutine()
 
-	// -----------------------------------------------------
-	// API SERVER UNTUK MT5: Sangat Cepat & Tanpa Beban
-	// -----------------------------------------------------
-	http.HandleFunc("/signal", func(w http.ResponseWriter, r *http.Request) {
+	// 2. Endpoint Konsultasi untuk MT5 (Bukan lagi asal polling tiap detik)
+	// MT5 hanya akan memanggil /consult jika indikatornya menyentuh batas bahaya
+	http.HandleFunc("/consult", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Harus POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Membaca Laporan dari MT5 (Contoh: "RSI=82.5|PRICE=1.095")
+		body, _ := io.ReadAll(r.Body)
+		mt5Report := string(body)
+
 		mu.Lock()
-		sig := currentSignal
+		currentNews := liveNewsData
 		mu.Unlock()
 
-		// Keluaran hanya teks murni "BUY" / "SELL" / "NEUTRAL"
+		fmt.Println("[MT5 Merapat] Laporan Lapangan Diterima:", mt5Report)
+		
+		// Lempar rapat ke Dewan Direksi (Gemini)
+		aiDecision := tanyakanWarrenBuffet(mt5Report, currentNews)
+
+		// Keluaran Presisi String (Contoh: "SELL|1.100|1.090")
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(sig))
+		w.Write([]byte(aiDecision))
 	})
 
-	fmt.Println("🚀 Antigravity Go Backend siap berterbangan!")
-	fmt.Println("📍 Endpoint Port Aktif: http://127.0.0.1:8880/signal")
-	
-	// Menyalakan server selamanya di port 8880
+	fmt.Println("🚀 Antigravity Quant (Warren Buffett Engine) Menyala!")
+	fmt.Println("📍 Endpoint Konsultasi: POST http://127.0.0.1:8880/consult")
 	log.Fatal(http.ListenAndServe(":8880", nil))
 }
 
-func aiRutinitasOtak() {
+// =========================================================================
+// FITUR 1: RADAR BERITA DUNIA
+// =========================================================================
+func beritaForexRoutine() {
 	for {
-		// PENDATAAAN: Di sinilah Anda nanti menyambungkan fungsi RSS scraper untuk berita Forex.
-		// Sementara kita mengirim simulasi teks berita panas ke Gemini.
-		simulatedNewsData := "The latest employment data (NFP) in the US showed a massive increase in jobs, suggesting the US Dollar will get much stronger."
-
-		fmt.Println("[Otak AI] Berita Baru Terdeteksi. Menghubungi Gemini Rotating API...")
-
-		newSignal := askGemini(simulatedNewsData)
-
-		// Simpan hasil terjemahan ke memori untuk diumpankan ke MT5
-		mu.Lock()
-		currentSignal = strings.TrimSpace(newSignal)
-		mu.Unlock()
-
-		fmt.Println("[Otak AI] Berita diolah! Signal MT5 saat ini:", currentSignal)
-
-		// Delay Rutinitas. Jangan membredel API tiap detik atau IP Anda diban.
-		// Idealnya AI akan dipanggil jika ada pemicu baru. Untuk ini, tunggu 15 Menit.
-		time.Sleep(15 * time.Minute)
+		fmt.Println("[Radar] Mengorek Data Kalender Ekonomi ForexFactory...")
+		// Endpoint API gratis kalender minggu ini dari ForexFactory
+		resp, err := http.Get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
+		
+		if err == nil {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			
+			var events []FFEvent
+			json.Unmarshal(body, &events)
+			
+			// Nyaring hanya berita "High Impact" (Merah) untuk Dolar dan Euro
+			penting := "Red Impact Hari Ini:\n"
+			jumlah := 0
+			for _, ev := range events {
+				if ev.Impact == "High" && (ev.Country == "USD" || ev.Country == "EUR") {
+					penting += fmt.Sprintf("- Negara: %s | Berita: %s\n", ev.Country, ev.Title)
+					jumlah++
+				}
+			}
+			
+			if jumlah > 0 {
+				mu.Lock()
+				liveNewsData = penting
+				mu.Unlock()
+			} else {
+				mu.Lock()
+				liveNewsData = "Tidak ada berita bahaya (High Impact) terdeteksi hari ini."
+				mu.Unlock()
+			}
+			fmt.Println("[Radar Sukses] Data tersimpan di memori.")
+		}
+		
+		// Cegah server kelelahan, cukup tarik jadwal sehari sekali/jam sekali
+		time.Sleep(1 * time.Hour)
 	}
 }
 
-// Fungsi Panggilan Jarak Jauh (HTTP Request ke Server Rotating API Anda)
-func askGemini(newsText string) string {
+// =========================================================================
+// FITUR 2: SANG DEWAN DIREKSI (GEMINI ANALIST)
+// =========================================================================
+func tanyakanWarrenBuffet(mt5Report string, news string) string {
 	
-	// PROMPT ENGINEERING: Sangat ketat agar robot tidak bingung
-	promptString := fmt.Sprintf(`Tugas Anda: Analisa fundamental. 
-	Berita Finansial: "%s" 
-	Jika berita ini membuat Euro / EURUSD NAIK, jawab "BUY". 
-	Jika berita ini membuat EURUSD TURUN (karena USD menguat), jawab "SELL". 
-	Jika tidak berimpact, jawab "NEUTRAL". 
-	JAWAB HANYA SATU KATA MUTLAK SAJA.`, newsText)
+	systemPersona := `Anda adalah algoritma Quant Trading elit dengan logika setingkat Warren Buffett. Anda BENAR-BENAR bukan manusia. Jangan gunakan sapaan, jangan mengobrol. Anda adalah mesin penghitung matematika.
+Anda akan diberikan 2 Data: Data Grafik dari alat Anda (MT5), dan Berita Dunia. 
+TUGAS MUTLAK:
+Jika data menunjukan Overbought/Oversold dan membelakangi berita, ambil keputusan Buy/Sell/Hold.
+Kemudian, tentukan angka Take Profit (TP) dari perhitungan Anda sendiri.
+Keluarkan SATU BARIS saja dengan format mutlak:
+ACTION|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT
+Contoh keluaran: SELL|0|1.090|RSI Ekstrem Overbought dan Berita USD Bullish.`
+
+	promptString := fmt.Sprintf("Data Grafik Saat Ini: [%s]\nBerita Dunia Saat Ini: [%s]", mt5Report, news)
 
 	reqBody := OpenAIRequest{
 		Model: "gemini-3.1-flash-lite-preview",
 		Messages: []Message{
-			{Role: "system", Content: "You are the world's most elite quant algorithms processor. Respond exclusively with one exact keyword as instructed."},
+			{Role: "system", Content: systemPersona},
 			{Role: "user", Content: promptString},
 		},
 	}
 
 	jsonValue, _ := json.Marshal(reqBody)
 
-	// Persiapan Tembakan Post ke `ai.aikeigroup.net`
+	// Persiapan Tembak
 	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
-	if err != nil {
-		fmt.Println("X Error membentuk request API:", err)
-		return "NEUTRAL"
-	}
+	if err != nil { return "HOLD|0|0|Error Server Lokal" }
 
-	// Memasukkan Kunci Akses Layaknya Format OpenAI Standard
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	// Panggilan Eksekusi. Kasih batas waktu gagal 10 Detik
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("X Gagal menghubungi API Server Node Anda:", err)
-		return "NEUTRAL"
-	}
+	if err != nil { return "HOLD|0|0|Gagal menghubungi API Gemini" }
 	defer resp.Body.Close()
 
-	// Memecah (Parsing) Respon Format OpenAI
 	body, _ := io.ReadAll(resp.Body)
 	var aiResp OpenAIResponse
 	json.Unmarshal(body, &aiResp)
 
-	// Jika sukses, lempar 1 kata mutlak itu kembali
 	if len(aiResp.Choices) > 0 {
-		return aiResp.Choices[0].Message.Content
+		pesan := strings.TrimSpace(aiResp.Choices[0].Message.Content)
+		// Pastikan mesin mematuhi format pemisah pipa "|"
+		if !strings.Contains(pesan, "|") {
+			return "HOLD|0|0|Mesin Salah Memberi Format Output"
+		}
+		return pesan
 	}
 
-	return "NEUTRAL"
+	return "HOLD|0|0|Kosong"
 }
