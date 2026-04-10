@@ -105,20 +105,20 @@ void OnTick()
   }
 
 //+------------------------------------------------------------------+
-//| DEEP THINKING TRIGGER: PEMBACAAN 3-DIMENSI SETIAP 60 DETIK       |
+//| DEEP THINKING TRIGGER: PEMBACAAN 3-DIMENSI SETIAP 5 DETIK        |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
    // Biarkan pasukan Martingale berperang. Jangan ajak bicara AI jika portofolio sedang bahaya/berjalan.
    if(PositionsTotal() > 0) return;
 
-   static datetime last_m1_bar = 0;
-   datetime current_m1_bar = iTime(_Symbol, PERIOD_M1, 0);
+   static datetime last_consult_time = 0;
+   datetime current = TimeCurrent();
 
-   // TRIGGER: Mengeksekusi Laporan HANYA saat lilin (candle) 1-Menit baru saja terbentuk
-   if(current_m1_bar != last_m1_bar)
+   // TRIGGER: Mengeksekusi Laporan HANYA setiap kelipatan 5 Detik! (Sangat Cerewet / HFT Mode)
+   if(current - last_consult_time >= 5)
      {
-      last_m1_bar = current_m1_bar;
+      last_consult_time = current;
       
       // Mengukur Kekuatan Pergerakan Lintas Waktu (Shift in Points)
       double m1_open = iOpen(_Symbol, PERIOD_M1, 1);
@@ -135,6 +135,8 @@ void OnTimer()
       
       double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+      Print("⏳ [AutoTrade6]: Menghitung M1(", DoubleToString(m1_shift,0), "), M15(", DoubleToString(m15_shift,0), "), H1(", DoubleToString(h1_shift,0), ")... Menunggu Balasan AI.");
 
       // Membuat Surat Pengajuan ke Meja Warren Buffett
       string reportStruct = StringFormat("M1_PIPS:%.0f|M15_PIPS:%.0f|H1_PIPS:%.0f|HARGA:%.5f", m1_shift, m15_shift, h1_shift, ask);

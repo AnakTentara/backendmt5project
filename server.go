@@ -18,7 +18,7 @@ var (
 
 	// Konfigurasi Kunci API (Karena Anda memiliki server rotator, arahkan ke localhost Rotator Anda)
 	apiKey     string = "aduhkaboaw91h9i28hoablkdl09190jelnkaknldwa90hoi2"
-	apiBaseUrl string = "ai.aikeigroup.net/v1/chat/completions" // Arahkan ke Rotator Node.js
+	apiBaseUrl string = "https://ai.aikeigroup.net/v1/chat/completions" // WAJIB gunakan HTTPS://
 
 	mu sync.Mutex
 )
@@ -62,10 +62,12 @@ func main() {
 		currentNews := liveNewsData
 		mu.Unlock()
 
-		fmt.Println("\n[Radar 1-Menit] Menyensor Pergeseran Harga:", mt5Report)
+		fmt.Println("\n[Radar 5-Detik] Menerima Laporan Tri-Dimensi MT5:", mt5Report)
+		fmt.Println("[Deep Thinker] Sedang Meraba Makro Kalender Ekonomi dan Mikro Harga... (Memanggil Rotator Gemini)")
 
 		// Proses Deep Thinking (Memanggil Gemini Rotator)
 		aiDecision := tanyakanWarrenBuffet(mt5Report, currentNews)
+		fmt.Println("[Deep Thinker] Selesai Berpikir. Keputusan:", aiDecision)
 
 		// Respon Teks Telanjang (Contoh: "SELL|1.100|1.090|H1 Bearish dan M1 Koreksi")
 		w.Header().Set("Content-Type", "text/plain")
@@ -73,7 +75,7 @@ func main() {
 	})
 
 	fmt.Println("🚀 Antigravity Quant (Deep Thinking Engine) Menyala!")
-	fmt.Println("📍 Endpoint: POST http://127.0.0.1:8880/consult")
+	fmt.Println("📍 Endpoint: POST http://103.93.129.117:8880/consult")
 	log.Fatal(http.ListenAndServe(":8880", nil))
 }
 
