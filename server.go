@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
@@ -129,10 +130,21 @@ func beritaForexRoutine() {
 // =========================================================================
 // DUAL GROUNDING SYSTEMS
 // =========================================================================
+// Struktur XML untuk RSS
+type RSS struct {
+	Channel Channel `xml:"channel"`
+}
+type Channel struct {
+	Items []Item `xml:"item"`
+}
+type Item struct {
+	Title string `xml:"title"`
+}
+
 func performScraperGrounding(context string) string {
-	fmt.Println("📡 [GoScraper] Menarik berita secara manual murni dari Go...")
-	// Simulasikan mini-scraper HTTP ke DuckDuckGo Lite.
-	url := "https://html.duckduckgo.com/html/?q=forex+market+news+today"
+	fmt.Println("📡 [GoScraper] Menarik berita secara manual murni dari Go RSS...")
+	
+	url := "https://www.forexlive.com/feed/news"
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -142,24 +154,23 @@ func performScraperGrounding(context string) string {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
 
-	var snippets []string
-	parts := strings.Split(html, "class=\"result__snippet")
-	for i, p := range parts {
-		if i == 0 || len(snippets) >= 3 {
-			continue // ambil 3 teratas
+	var rss RSS
+	xml.Unmarshal(body, &rss)
+
+	var titles []string
+	for i, item := range rss.Channel.Items {
+		if i >= 5 {
+			break
 		}
-		idx1 := strings.Index(p, ">")
-		idx2 := strings.Index(p, "</a>")
-		if idx1 != -1 && idx2 != -1 && idx1 < idx2 {
-			text := p[idx1+1 : idx2]
-			text = strings.ReplaceAll(text, "<b>", "")
-			text = strings.ReplaceAll(text, "</b>", "")
-			snippets = append(snippets, text)
-		}
+		titles = append(titles, item.Title)
 	}
-	return "Berita Scraping Go: " + strings.Join(snippets, " | ")
+	
+	if len(titles) == 0 {
+		return "Tidak menemukan berita."
+	}
+	
+	return "Berita Scraping Mentah: " + strings.Join(titles, " | ")
 }
 
 func performAIGrounding(context string) string {
