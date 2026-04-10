@@ -201,7 +201,7 @@ void OnTimer()
       
       double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double spread_cur = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD); // dalam poin
+      long   spread_cur = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD); // dalam poin (long)
       
       int total_pos = PositionsTotal();
       double floating_profit = AccountInfoDouble(ACCOUNT_PROFIT);
