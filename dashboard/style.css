@@ -80,6 +80,21 @@ header {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 3rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.update-time {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    font-family: monospace;
 }
 
 .logo h1 {
@@ -129,7 +144,7 @@ header {
 /* Grid & Cards */
 .kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1.5rem;
     margin-bottom: 2rem;
 }
@@ -153,9 +168,15 @@ header {
 
 .kpi-card h2 {
     font-family: 'Outfit', sans-serif;
-    font-size: 2.8rem;
+    font-size: 2.4rem;
     font-weight: 600;
     margin-bottom: 0.5rem;
+}
+
+.subtext {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-top: 0.4rem;
 }
 
 .text-glow {

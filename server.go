@@ -70,6 +70,7 @@ type FFEvent struct {
 	Title   string `json:"title"`
 	Impact  string `json:"impact"`
 	Country string `json:"country"`
+	Date    string `json:"date"`   // Tambah field date untuk filter hari ini
 }
 
 // --- MEMORY ---
@@ -375,6 +376,8 @@ func main() {
 			return
 		}
 
+		// BUG FIX: mu.Lock hilang sebelum mu.Unlock — race condition mematikan!
+		mu.Lock()
 		currentNews := liveNewsData
 		mu.Unlock()
 
@@ -656,15 +659,41 @@ func handleApiStats(w http.ResponseWriter, r *http.Request) {
 
 	equity := totalBalance + totalFloating
 
+	// Hitung Win Rate dari semua memory
+	totalWins, totalLosses := 0, 0
+	for _, entries := range mem.History {
+		for _, e := range entries {
+			if e.Result == "WIN" {
+				totalWins++
+			} else if e.Result == "LOSS" || e.Result == "CUT" {
+				totalLosses++
+			}
+		}
+	}
+	winRate := 0.0
+	if totalWins+totalLosses > 0 {
+		winRate = float64(totalWins) / float64(totalWins+totalLosses) * 100.0
+	}
+
+	// Hitung Total PnL keseluruhan
+	totalPnL := 0.0
+	for _, d := range dates {
+		totalPnL += dailyPnL[d]
+	}
+
 	response := map[string]interface{}{
-		"equity": equity,
-		"balance": totalBalance,
-		"floating": totalFloating,
-		"max_abs_drawdown": maxAbsDrawdown,      // Absolute terbesar yang pernah hilang dalam 1 cut
-		"chart_data": overallChart,
-		"wins": pb.TotalVictories,
-		"losses": pb.TotalDisasters,
-		"latest_lessons": pb.Victories,      // Kita render ini di bawah
+		"equity":           equity,
+		"balance":          totalBalance,
+		"floating":         totalFloating,
+		"max_abs_drawdown": maxAbsDrawdown,
+		"chart_data":       overallChart,
+		"wins":             pb.TotalVictories,
+		"losses":           pb.TotalDisasters,
+		"total_wins":       totalWins,
+		"total_losses":     totalLosses,
+		"win_rate":         winRate,
+		"total_pnl":        totalPnL,
+		"latest_lessons":   pb.Victories,
 		"latest_disasters": pb.Disasters,
 	}
 
@@ -688,33 +717,46 @@ func defaultMin(a, b float64) float64 {
 // =========================================================================
 // SENSOR BERITA PUSAT
 // =========================================================================
+// BUG FIX: defer di dalam infinite loop menyebabkan file descriptor leak!
+// Setiap iterasi loop TIDAK boleh pakai defer untuk Close, harus eksplisit di luar.
 func beritaForexRoutine() {
 	for {
-		resp, err := http.Get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
-		if err == nil {
+		func() { // wrapper agar defer berfungsi per-iterasi
+			resp, err := http.Get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
+			if err != nil {
+				fmt.Println("[BeritaForum] Gagal menarik kalender FF:", err)
+				return
+			}
 			defer resp.Body.Close()
 			body, _ := io.ReadAll(resp.Body)
 			var events []FFEvent
 			json.Unmarshal(body, &events)
 
-			penting := "Red Impact Forex Hari Ini:\n"
+			todayStr := time.Now().UTC().Format("2006-01-02")
+			penting := "📅 Agenda Berita High-Impact Hari Ini:\n"
 			jumlah := 0
 			for _, ev := range events {
-				if ev.Impact == "High" && (ev.Country == "USD" || ev.Country == "EUR") {
-					penting += fmt.Sprintf("- %s: %s\n", ev.Country, ev.Title)
-					jumlah++
+				// FIX: filter hanya event HARI INI (bukan semua minggu ini)
+				if ev.Impact == "High" && (ev.Country == "USD" || ev.Country == "EUR" || ev.Country == "GBP") {
+					// Kalau field date tersedia, filter per hari. Jika tidak, tampilkan semua high.
+					if ev.Date == "" || strings.HasPrefix(ev.Date, todayStr) {
+						penting += fmt.Sprintf("  - [%s] %s\n", ev.Country, ev.Title)
+						jumlah++
+					}
 				}
 			}
 
 			mu.Lock()
 			if jumlah > 0 {
 				liveNewsData = penting
+				fmt.Printf("[BeritaForex] %d berita high-impact ditemukan hari ini.\n", jumlah)
 			} else {
-				liveNewsData = "Kondisi Berita Global: Tenang."
+				liveNewsData = "Kondisi Berita Global: Tenang. Tidak ada event high-impact hari ini."
 			}
 			mu.Unlock()
-		}
-		time.Sleep(1 * time.Hour)
+		}()
+		// Update berita setiap 30 menit (bukan 1 jam) agar lebih responsif
+		time.Sleep(30 * time.Minute)
 	}
 }
 

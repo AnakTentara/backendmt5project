@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Oracle v8 | Quant Dashboard</title>
+    <title>The Oracle v9 | APEX Quant Dashboard</title>
+    <meta name="description" content="Antigravity Quant System - Real-time trading monitor for The Oracle v9 APEX ENGINE">
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&family=Outfit:wght@600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -16,33 +17,38 @@
     <div class="container">
         <header>
             <div class="logo">
-                <h1>THE ORACLE <span>v8</span></h1>
-                <p>Institutional Quant Engine</p>
+                <h1>THE ORACLE <span>v9</span></h1>
+                <p>APEX Institutional Quant Engine</p>
             </div>
-            <div class="status-indicator">
-                <span class="dot"></span>
-                <span id="sync-status">Real-time Synced</span>
+            <div class="header-right">
+                <div id="last-update" class="update-time">--</div>
+                <div class="status-indicator">
+                    <span class="dot" id="status-dot"></span>
+                    <span id="sync-status">Menghubungkan...</span>
+                </div>
             </div>
         </header>
 
+        <!-- ROW 1: KPI Cards -->
         <section class="kpi-grid">
-            <div class="kpi-card glass">
-                <h3>Live Equity</h3>
+            <div class="kpi-card glass" id="card-equity">
+                <h3>⚡ Live Equity</h3>
                 <h2 id="kpi-equity" class="text-glow">$0.00</h2>
                 <div class="kpi-meta">
                     <span class="label">Balance:</span> <span id="kpi-balance">$0.00</span>
+                    &nbsp;
                     <span class="label">Float:</span> <span id="kpi-floating" class="text-neutral">$0.00</span>
                 </div>
             </div>
-            
+
             <div class="kpi-card glass">
-                <h3>Max. Absolute Drawdown</h3>
+                <h3>📉 Max Absolute Drawdown</h3>
                 <h2 id="kpi-drawdown" class="text-danger">$0.00</h2>
-                <p class="subtext">Kerugian terjauh dari Modal</p>
+                <p class="subtext">Kerugian terbesar single-basket</p>
             </div>
 
             <div class="kpi-card glass">
-                <h3>Oracle Track Record</h3>
+                <h3>🏆 Oracle Track Record</h3>
                 <div class="record-split">
                     <div class="record-item">
                         <span class="val text-success" id="kpi-wins">0</span>
@@ -52,19 +58,31 @@
                         <span class="val text-danger" id="kpi-losses">0</span>
                         <span class="lbl">Disasters</span>
                     </div>
+                    <div class="record-item">
+                        <span class="val" id="kpi-winrate" style="color:#00F0FF">0%</span>
+                        <span class="lbl">Win Rate</span>
+                    </div>
                 </div>
+            </div>
+
+            <div class="kpi-card glass">
+                <h3>💰 Total PnL (30 Hari)</h3>
+                <h2 id="kpi-total-pnl" class="text-glow">$0.00</h2>
+                <p class="subtext" id="trade-count">0 total trade terekam</p>
             </div>
         </section>
 
+        <!-- ROW 2: Chart -->
         <section class="chart-section glass">
             <div class="section-header">
-                <h3>Cumulative Profit Growth (30 Days)</h3>
+                <h3>📈 Cumulative Profit Growth (30 Days)</h3>
             </div>
             <div class="canvas-container">
                 <canvas id="growthChart"></canvas>
             </div>
         </section>
 
+        <!-- ROW 3: Lessons -->
         <section class="lessons-grid">
             <div class="lesson-column glass">
                 <div class="section-header">
