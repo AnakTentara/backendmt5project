@@ -114,10 +114,24 @@ void SendFeedback(string result, double profit, double balance)
   }
 
 // ==========================================
+// CEK HARI WEEKEND (SABTU & MINGGU)
+// ==========================================
+bool IsWeekend()
+  {
+   MqlDateTime dt;
+   TimeToStruct(TimeGMT(), dt);
+   // day_of_week: 0=Sun, 1=Mon, ..., 6=Sat
+   return (dt.day_of_week == 0 || dt.day_of_week == 6);
+  }
+
+// ==========================================
 // CEK SESI TRADING (London + New York)
 // ==========================================
 bool IsActiveSession()
   {
+   // WEEKEND GATE: Blok absolut saat Sabtu & Minggu
+   if(IsWeekend()) return false;
+   
    if(!InpSessionFilter) return true; // Filter dinonaktifkan, trading 24 jam
    
    MqlDateTime dt;
@@ -137,6 +151,18 @@ bool IsActiveSession()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   // WEEKEND GATE: Jangan sentuh apapun saat weekend
+   if(IsWeekend())
+     {
+      static datetime last_weekend_log = 0;
+      if(TimeCurrent() - last_weekend_log > 3600) // log sekali per jam
+        {
+         Print("🌙 [Oracle] Weekend. Pasar Forex Tutup. Robot Istirahat.");
+         last_weekend_log = TimeCurrent();
+        }
+      return;
+     }
+
    int total_pos = 0;
    double total_profit = 0.0;
    long grid_type = -1; 

@@ -365,7 +365,16 @@ func main() {
 		// Update Data Real-Time untuk Web Dashboard
 		go updateLatestStatus(symbol, mt5Report)
 
-		mu.Lock()
+		// WEEKEND GATE: Pasar Forex Tutup Sabtu & Minggu
+		now := time.Now().UTC()
+		weekday := now.Weekday()
+		if weekday == time.Saturday || weekday == time.Sunday {
+			fmt.Printf("[Oracle] 🌙 Weekend Gate: %s hari %s - Pasar Tutup. HOLD.\n", symbol, weekday)
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("HOLD|0|0|0|Weekend: Pasar Forex Tutup. Robot Istirahat."))
+			return
+		}
+
 		currentNews := liveNewsData
 		mu.Unlock()
 
