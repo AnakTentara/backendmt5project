@@ -447,13 +447,17 @@ func main() {
 	// Endpoint API: Web Dashboard Metrics
 	http.HandleFunc("/api/stats", handleApiStats)
 
+	// PHASE 3: Scalper Drone Endpoint
+	http.HandleFunc("/scalp", handleScalperDrone)
+
 	// Endpoint Frontend
 	http.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.Dir("./dashboard"))))
 
-	fmt.Println("🚀 Antigravity Quant [The Oracle] v8 + Web Dashboard Menyala!")
-	fmt.Println("📍 POST /          → Konsultasi Oracle")
-	fmt.Println("📍 POST /feedback  → Laporan Hasil Trade")
-	fmt.Println("📍 GET  /dashboard → Buka Panel UI Web (Responsive)")
+	fmt.Println("⚡ Antigravity Quant [The Oracle v9 APEX ENGINE] Menyala!")
+	fmt.Println("📍 POST /          → Oracle Deep Thinker (M1 Swing)")
+	fmt.Println("📍 POST /feedback  → Feedback Loop (Win/Loss Tracker)")
+	fmt.Println("📍 POST /scalp     → Scalper Drone (M1/M5 Fast Alpha)")
+	fmt.Println("📍 GET  /dashboard → Web Dashboard UI")
 	log.Fatal(http.ListenAndServe(":8880", nil))
 }
 
@@ -463,7 +467,6 @@ func main() {
 
 // Mengekstrak nilai spesifik dari regex/tag manual
 func extractValue(payload, key string) float64 {
-	// Contoh: "|FLOAT:-12.50|BAL:..."
 	idx := strings.Index(payload, key+":")
 	if idx == -1 {
 		return 0
@@ -476,6 +479,92 @@ func extractValue(payload, key string) float64 {
 	var val float64
 	fmt.Sscanf(sub, "%f", &val)
 	return val
+}
+
+// =========================================================================
+// PHASE 3: SCALPER DRONE HANDLER
+// =========================================================================
+func handleScalperDrone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	// Weekend gate
+	now := time.Now().UTC()
+	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
+		w.WriteHeader(200)
+		w.Write([]byte("HOLD|0|0|0|Weekend gate"))
+		return
+	}
+
+	body, _ := io.ReadAll(r.Body)
+	payload := string(body)
+
+	// Extract symbol
+	symbol := "UNKNOWN"
+	if idx := strings.Index(payload, "SYMBOL:"); idx != -1 {
+		rest := payload[idx+7:]
+		if end := strings.IndexAny(rest, " |\n"); end != -1 {
+			symbol = rest[:end]
+		} else {
+			symbol = strings.TrimSpace(rest)
+		}
+	}
+
+	systemScalper := `Anda adalah Scalper AI ultra-cepat. Tugasmu: HANYA eksekusi peluang scalp 8-15 pip pada M1/M5.
+Input: Simbol, Delta M1, Delta M5, Spread, ASK, BID.
+
+ATURAN KETAT:
+- Jika M1 dan M5 searah (keduanya positif = bullish, keduanya negatif = bearish) DAN Spread < 15: eksekusi SCALP_BUY atau SCALP_SELL.
+- Jika M1 dan M5 berlawanan arah, atau Spread >= 20: HOLD saja.
+- SL = 10 pip dari harga. TP = 12 pip dari harga (R:R minimal 1.2).
+- ATR tidak diperlukan untuk scalping M1.
+
+OUTPUT WAJIB (1 baris, 5 elemen pip '|'):
+SCALP_BUY|0|SL_ABSOLUT|TP_ABSOLUT|Alasan singkat
+atau: SCALP_SELL|0|SL_ABSOLUT|TP_ABSOLUT|Alasan singkat
+atau: HOLD|0|0|0|Alasan singkat`
+
+	prompt := fmt.Sprintf("Data Scalper: [%s]", payload)
+	reqBody := OpenAIRequest{
+		Model:    "gemini-3.1-flash-lite-preview",
+		Messages: []Message{
+			{Role: "system", Content: systemScalper},
+			{Role: "user", Content: prompt},
+		},
+	}
+
+	jsonValue, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
+	if err != nil {
+		w.Write([]byte("HOLD|0|0|0|Internal error"))
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		w.Write([]byte("HOLD|0|0|0|AI timeout"))
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	var aiResp OpenAIResponse
+	json.Unmarshal(respBody, &aiResp)
+
+	decision := "HOLD|0|0|0|No signal"
+	if len(aiResp.Choices) > 0 {
+		decision = strings.TrimSpace(aiResp.Choices[0].Message.Content)
+		if !strings.Contains(decision, "|") {
+			decision = "HOLD|0|0|0|AI mengoceh"
+		}
+	}
+
+	fmt.Printf("[Scalper] 🐝 %s → %s\n", symbol, decision)
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(decision))
 }
 
 func updateLatestStatus(symbol, payload string) {
@@ -721,32 +810,34 @@ func tanyakanWarrenBuffet(mt5Report, news, memoryContext, symbol string) string 
 	systemPersona := `Anda adalah algoritma Quant Trading tingkat Institusi (Hedge Fund Level) dengan kemampuan belajar dari masa lalu.
 Anda menerima Laporan Pasar lengkap dari MetaTrader 5:
 
-1. PORTFOLIO: POS (posisi terbuka), FLOAT (profit/loss mengambang), BAL (saldo akun), F_MARG (margin bebas)
-2. STRUCTURE: D1_H (Resistance hari ini), D1_L (Support hari ini), ASK (harga saat ini), SPREAD (poin), ATR_PIP (volatilitas H1)
-3. SESSION: Sesi pasar aktif (LONDON, NEW_YORK, LONDON+NY_OVERLAP, ASIA)
+1. PORTFOLIO: POS (posisi terbuka), FLOAT (profit/loss mengambang), BAL (saldo akun), F_MARG (margin bebas), WIN_STREAK, LOSS_STREAK
+2. STRUCTURE: D1_H (Resistance hari ini), D1_L (Support hari ini), ASK, SPREAD, ATR_PIP
+3. SESSION: Sesi pasar dan DAILY_START_BAL (modal awal hari ini) serta CONF_BIAS
 4. DELTA: Pergeseran candle M1/M15/H1 dalam pip
-5. MEMORI: Riwayat & statistik keputusan 30 hari terakhir
-6. PELAJARAN: Analisis dari kemenangan dan kegagalan historis
-7. BERITA: Konteks makro ekonomi real-time
+5. MEMORI + PELAJARAN historis 30 hari
+6. BERITA makro real-time
 
-ATURAN KECERDASAN:
-- EKSEKUSI AGRESIF (MARKET ORDER): Jika Delta M1 dan M15 menunjukkan momentum yang sangat kuat dan searah dengan Berita, JANGAN RAGU untuk langsung ACTION: BUY atau SELL (bukan LIMIT). Hajar pasar jika peluang emas ada!
-- PENGGUNAAN LIMIT: Gunakan BUY_LIMIT atau SELL_LIMIT hanya jika harga sedang "nanggung" atau bergerak ranging tanpa momentum jelas.
-- SPREAD >15 poin = pertimbangkan LIMIT atau HOLD, kecuali momentum (Delta) sedemikian kuatnya hingga spread bisa diabaikan.
-- ATR >80 pip = volatile → SL lebih lebar.
-- SESSION LONDON+NY_OVERLAP = volume terbesar, sinyal Delta sangat valid.
-- Jika FLOAT sangat negatif (kerugian > 5% BAL) → CUT_LOSS_ALL
-- SL minimal = 1x ATR_PIP | TP minimal = 1.5x ATR_PIP (R:R >= 1.5)
-- Harga dekat D1_H (<5 pip) → rawan pantulan turun. Harga dekat D1_L (<5 pip) → rawan pantulan naik.
-- PELAJARI riwayat memori → hindari pola yang berulang gagal.
+ATURAN KECERDASAN APEX:
+- MARKET ORDER AGRESIF: Jika Delta M1+M15 kuat dan searah dan momentum didukung berita → langsung BUY atau SELL. Jangan tunggu LIMIT.
+- LIMIT ORDER: Hanya saat pasar ranging tanpa momentum, gunakan LIMIT untuk menangkap pantulan S/R.
+- WIN_STREAK >= 3 → Anda sedang dalam kondisi excellent, bisa sedikit lebih agresif tapi TETAP DISIPLIN R:R.
+- LOSS_STREAK >= 2 → Waspada, pasar mungkin bergerak tak wajar. Pilih HOLD atau LIMIT saja.
+- SPREAD > 15 poin → Hindari market order kecuali momentum sangat kuat.
+- ATR > 80 pip = volatile → SL wajib lebih lebar dari 1x ATR.
+- Jika FLOAT negatif > 5% dari BAL → wajib CUT_LOSS_ALL.
+- Harga dekat D1_H (< 5 pip) → zona SELL/resistance. Harga dekat D1_L (< 5 pip) → zona BUY/support.
+- PELAJARAN masa lalu adalah hukum: jangan ulangi pola yang sudah terbukti merugi.
+- Jika BAL - DAILY_START_BAL < -(5% dari DAILY_START_BAL) → HOLD total, jangan buka posisi baru.
 
 ATURAN OUTPUT BESI (DILARANG MENGOBROL):
-Keluarkan SATU BARIS SAJA, 5 elemen pemisah pipa:
-ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_SINGKAT_MAX_15_KATA
-- ACTION: BUY, SELL, BUY_LIMIT, SELL_LIMIT, AVERAGING_BUY, CUT_LOSS_ALL, atau HOLD
+Keluarkan SATU BARIS SAJA, 6 elemen pemisah pipa:
+ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_MAX_15_KATA|CONFIDENCE:ANGKA
+- ACTION: BUY, SELL, BUY_LIMIT, SELL_LIMIT, AVERAGING_BUY, AVERAGING_SELL, CUT_LOSS_ALL, atau HOLD
 - BUY/SELL/HOLD/CUT_LOSS_ALL → ENTRY_PRICE = 0
-- BUY_LIMIT/SELL_LIMIT → ENTRY_PRICE = harga limit yang dikalkulasi dari S/R
-- SL dan TP: angka harga ABSOLUT berdasarkan ATR_PIP`
+- BUY_LIMIT/SELL_LIMIT → ENTRY_PRICE = harga limit absolut
+- SL dan TP = angka ABSOLUT berdasarkan ATR_PIP
+- CONFIDENCE = angka 0-100 (keyakinan Anda atas keputusan ini)
+  Contoh: BUY|0|1.1620|1.1700|Momentum bullish M1+M15 kuat|CONFIDENCE:82`
 
 	groundingContext := ""
 	if ActiveGroundingMode == GROUNDING_AI_DEDICATED {
