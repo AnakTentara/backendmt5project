@@ -76,9 +76,13 @@ bool IsActiveSession()
    MqlDateTime dt;
    TimeToStruct(TimeGMT(), dt);
    int hour = dt.hour;
-   bool london  = (hour >= InpSessionStartUTC && hour < 16);
-   bool newyork = (hour >= 13 && hour < InpSessionEndUTC);
-   return (london || newyork);
+   
+   // Waktu UTC: 23:00 UTC = 06:00 WIB
+   bool tokyo   = (hour == 23 || hour < 7);
+   bool london  = (hour >= 7 && hour < 16);
+   bool newyork = (hour >= 13 && hour < InpSessionEndUTC); // Akhir sesi biasanya 21 UTC (04:00 WIB)
+   
+   return (tokyo || london || newyork);
   }
 
 // ==========================================
