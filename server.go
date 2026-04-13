@@ -46,6 +46,10 @@ var (
 
 	// Menyimpan data Tick-by-Tick terakhir dari MQL5 untuk web dashboard
 	LatestMT5Status = make(map[string]map[string]float64)
+
+	// Phase 5: Global News Timer
+	nextHighImpactNews time.Time
+	minToNextNews      int = 9999
 )
 
 // =========================================================================
@@ -772,10 +776,29 @@ func beritaForexRoutine() {
 			} else {
 				liveNewsData = "Kondisi Berita Global: Tenang. Tidak ada event high-impact hari ini."
 			}
+
+			// Phase 5: Cari event terdekat yang belum lewat
+			minDiff := 9999
+			var nextTime time.Time
+			nowUTC := time.Now().UTC()
+			for _, ev := range events {
+				if ev.Impact == "High" && (ev.Country == "USD" || ev.Country == "EUR" || ev.Country == "GBP" || ev.Country == "All") {
+					evTime, err := time.Parse(time.RFC3339, ev.Date)
+					if err == nil && evTime.After(nowUTC) {
+						diff := int(evTime.Sub(nowUTC).Minutes())
+						if diff < minDiff {
+							minDiff = diff
+							nextTime = evTime
+						}
+					}
+				}
+			}
+			minToNextNews = minDiff
+			nextHighImpactNews = nextTime
 			mu.Unlock()
 		}()
-		// Update berita setiap 30 menit (bukan 1 jam) agar lebih responsif
-		time.Sleep(30 * time.Minute)
+		// Update berita setiap 15 menit agar timer lebih akurat
+		time.Sleep(15 * time.Minute)
 	}
 }
 
@@ -843,9 +866,47 @@ func performAIGrounding(context string) string {
 }
 
 // =========================================================================
+// MULTI-PAIR CONTEXT BUILDER
+// =========================================================================
+func buildGlobalPortfolioContext(excludeSymbol string) string {
+	mu.Lock()
+	defer mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString("\n🌐 GLOBAL PORTFOLIO STATUS (Other Pairs):\n")
+	found := false
+	for sym, data := range LatestMT5Status {
+		if sym == excludeSymbol || sym == "UNKNOWN" {
+			continue
+		}
+		pos := int(data["POS"])
+		if pos > 0 {
+			sb.WriteString(fmt.Sprintf("  - %s: %d open positions | Float: $%.2f\n", sym, pos, data["FLOAT"]))
+			found = true
+		}
+	}
+	if !found {
+		return "\n🌐 GLOBAL PORTFOLIO: Tidak ada posisi terbuka di pair lain (Diversifikasi Optimal).\n"
+	}
+	return sb.String()
+}
+
+// =========================================================================
 // DEEP THINKER ALGORITHM
 // =========================================================================
 func tanyakanWarrenBuffet(mt5Report, news, memoryContext, symbol string) string {
+	mu.Lock()
+	minNext := minToNextNews
+	mu.Unlock()
+
+	newsSafetyNote := ""
+	if minNext <= 15 {
+		newsSafetyNote = fmt.Sprintf("\n🚨 CRITICAL NEWS ALERT: Berita High-Impact rilis dalam %d MENIT! Segera Amankan Akun.\n", minNext)
+	} else if minNext <= 60 {
+		newsSafetyNote = fmt.Sprintf("\n⚠️ NEWS WARNING: Berita High-Impact rilis dalam %d menit.\n", minNext)
+	}
+
+	globalCtx := buildGlobalPortfolioContext(symbol)
 
 	// Muat Pelajaran Berharga untuk konteks tambahan
 	pb := loadPelajaran()
@@ -879,16 +940,16 @@ Anda menerima Laporan Pasar lengkap dari MetaTrader 5:
 6. BERITA makro real-time
 
 ATURAN KECERDASAN APEX:
+- NEWS HARD-STOP: Jika '🚨 CRITICAL NEWS ALERT' (minNext <= 15) terdeteksi, Anda WAJIB mengeluarkan perintah CUT_LOSS_ALL atau minimal HOLD. Dilarang keras membuka posisi baru (BUY/SELL/LIMIT) sesaat sebelum berita besar. Keselamatan modal di atas segalanya.
+- CORRELATION GUARD: Selalu periksa 'GLOBAL PORTFOLIO STATUS'. Jika Anda ingin SELL EURUSD tapi sudah ada posisi SELL GBPUSD yang besar, pertimbangkan risiko korelasi mata uang. Jangan tumpuk risiko pada satu arah mata uang (USD) secara berlebihan.
 - MARKET ORDER AGRESIF: Jika Delta M1+M15 kuat dan searah dan momentum didukung berita → langsung BUY atau SELL. Jangan tunggu LIMIT.
 - LIMIT ORDER: Hanya saat pasar ranging tanpa momentum, gunakan LIMIT untuk menangkap pantulan S/R.
-- WIN_STREAK >= 3 → Anda sedang dalam kondisi excellent, bisa sedikit lebih agresif tapi TETAP DISIPLIN R:R.
-- LOSS_STREAK >= 2 → Waspada, pasar mungkin bergerak tak wajar. Pilih HOLD atau LIMIT saja.
-- SPREAD > 15 poin → Hindari market order kecuali momentum sangat kuat.
+- WIN_STREAK >= 3 → Kondisi excellent, bisa agresif lot. LOSS_STREAK >= 2 → Waspada, gunakan LIMIT/HOLD.
+- SPREAD > 15 poin → Hindari market order kecuali momentum masif.
 - ATR > 80 pip = volatile → SL wajib lebih lebar dari 1x ATR.
-- Jika FLOAT negatif > 5% dari BAL → wajib CUT_LOSS_ALL.
-- Harga dekat D1_H (< 5 pip) → zona SELL/resistance. Harga dekat D1_L (< 5 pip) → zona BUY/support.
-- PELAJARAN masa lalu adalah hukum: jangan ulangi pola yang sudah terbukti merugi.
-- Jika BAL - DAILY_START_BAL < -(5% dari DAILY_START_BAL) → HOLD total, jangan buka posisi baru.
+- Jika FLOAT negatif > 5% dari BAL → wajib CUT_LOSS_ALL demi integritas akun.
+- Harga dekat D1_H (< 5 pip) → zona resistance. Harga dekat D1_L (< 5 pip) → zona support.
+- Jika BAL - DAILY_START_BAL < -(5% dari DAILY_START_BAL) → HOLD total (Daily Drawdown Limit).
 
 ATURAN OUTPUT BESI (DILARANG MENGOBROL):
 Keluarkan SATU BARIS SAJA, 6 elemen pemisah pipa:
@@ -908,8 +969,8 @@ ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_MAX_15_KATA|CONFIDENCE:ANGKA
 	}
 
 	promptString := fmt.Sprintf(
-		"Simbol: %s\nData Radar MT5: [%s]\nAgenda Ekonomi: [%s]\nGrounding Internet: [%s]\n\n%s\n%s",
-		symbol, mt5Report, news, groundingContext, memoryContext, pelajaranCtx,
+		"Simbol: %s%s%s\nData Radar MT5: [%s]\nAgenda Ekonomi: [%s]\nGrounding Internet: [%s]\n\n%s\n%s",
+		symbol, newsSafetyNote, globalCtx, mt5Report, news, groundingContext, memoryContext, pelajaranCtx,
 	)
 
 	reqBody := OpenAIRequest{
