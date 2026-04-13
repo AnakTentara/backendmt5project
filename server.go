@@ -33,12 +33,14 @@ const (
 )
 
 var (
-	ActiveGroundingMode = GROUNDING_GO_SCRAPER
-	AIGroundingModel    = "gemma-4-26b-a4b-it" // Default native model
+	ActiveGroundingMode = GROUNDING_OFF
+	AIGroundingModel    = "google/gemma-4-31B-it"
+	DisableAI           = false // AI re-enabled with HuggingFace support
+	hfApiKey            = ""
 
-	liveNewsData string = "Belum ada berita ditarik."
+	liveNewsData string = "Sistem AI Berita Aktif (HuggingFace)."
 
-	// Rotator kunci API
+	// Rotator kunci API Gemini
 	geminiApiKeys []string
 	currentKeyIdx int
 	keyMu         sync.Mutex
@@ -284,6 +286,9 @@ func savePelajaran(pb PelajaranBerharga) {
 }
 
 func generateAnalysis(kind, symbol, decision, context string, pnl, balance float64) string {
+	if DisableAI {
+		return "Analisis AI dinonaktifkan sementara."
+	}
 	var prompt string
 	if kind == "VICTORY" {
 		prompt = fmt.Sprintf(`Anda adalah analis trading profesional. Tulis analisis singkat (3-5 kalimat) tentang MENGAPA strategi ini BERHASIL menghasilkan profit.
@@ -301,7 +306,10 @@ Loss: $%.2f dari Balance $%.2f
 Tulis dalam bahasa Indonesia. Identifikasi: (1) akar penyebab kegagalan, (2) sinyal bahaya yang seharusnya terdeteksi, (3) pelajaran agar tidak terulang.`, pnl/balance*100, symbol, decision, context, pnl, balance)
 	}
 
-	res, err := callGeminiNative(prompt, "Anda adalah analis trading profesional.", "gemini-1.5-flash", false)
+	res, err := callHuggingFaceNative(prompt, "google/gemma-4-31B-it")
+	if err != nil {
+		res, err = callGeminiNative(prompt, "Anda adalah analis trading profesional.", "gemini-1.5-flash", false)
+	}
 	if err != nil {
 		return "Analisis tidak tersedia."
 	}
@@ -352,8 +360,10 @@ func recordLesson(symbol, decision, context string, pnl, balance float64) {
 // MAIN: SERVER
 // =========================================================================
 func main() {
-	initKeys()
-	go beritaForexRoutine()
+	if !DisableAI {
+		initKeys()
+		go beritaForexRoutine()
+	}
 
 	// Endpoint utama: Konsultasi Oracle
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -569,6 +579,12 @@ func handleScalperDrone(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if DisableAI {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("HOLD|0|0|0|Mode Pasif: AI Dimatikan"))
+		return
+	}
+
 	systemScalper := `Anda adalah Scalper AI ultra-cepat. Tugasmu: HANYA eksekusi peluang scalp 8-15 pip pada M1/M5.
 Input: Simbol, Delta M1, Delta M5, Spread, ASK, BID.
 
@@ -584,9 +600,13 @@ atau: SCALP_SELL|0|SL_ABSOLUT|TP_ABSOLUT|Alasan singkat
 atau: HOLD|0|0|0|Alasan singkat`
 
 	prompt := fmt.Sprintf("Data Scalper: [%s]", payload)
-	decision, err := callGeminiNative(prompt, systemScalper, "gemma-4-26b-a4b-it", false)
+	// Try HF then Gemini for Scalper
+	decision, err := callHuggingFaceNative(prompt, "google/gemma-4-26b-a4b-it")
 	if err != nil {
-		decision = "HOLD|0|0|0|AI error"
+		decision, err = callGeminiNative(prompt, systemScalper, "gemini-1.5-flash", false)
+	}
+	if err != nil {
+		decision = "HOLD|0|0|0|Semua provider AI gagal"
 	}
 
 	fmt.Printf("[Scalper] 🐝 %s → %s\n", symbol, decision)
@@ -842,9 +862,15 @@ func performScraperGrounding(context string) string {
 }
 
 func performAIGrounding(context string) string {
+	if DisableAI {
+		return "AI Grounding (Google Search) Dinonaktifkan."
+	}
 	fmt.Println("📡 [AIGrounding] AI Khusus menjelajah internet...")
-	prompt := "Browsing internet sekarang. Berikan ringkasan berita terpenting hari ini untuk market forex, maksimal 3 kalimat padat. Situasi: " + context
-	res, err := callGeminiNative(prompt, "Anda adalah asisten riset pasar.", "gemini-1.5-flash", true)
+	prompt := "Ringkasan berita market forex hari ini: " + context
+	res, err := callHuggingFaceNative(prompt, "google/gemma-4-31B-it")
+	if err != nil {
+		res, err = callGeminiNative(prompt, "Asisten riset pasar.", "gemini-1.5-flash", true)
+	}
 	if err != nil {
 		return "AI Grounding gagal: " + err.Error()
 	}
@@ -881,6 +907,9 @@ func buildGlobalPortfolioContext(excludeSymbol string) string {
 // DEEP THINKER ALGORITHM
 // =========================================================================
 func tanyakanWarrenBuffet(mt5Report, news, memoryContext, symbol string) string {
+	if DisableAI {
+		return "HOLD|0|0|0|Safety Mode: AI Sedang Maintenance/Disabled"
+	}
 	mu.Lock()
 	minNext := minToNextNews
 	mu.Unlock()
@@ -961,21 +990,36 @@ ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_MAX_15_KATA|CONFIDENCE:ANGKA
 		symbol, newsSafetyNote, globalCtx, mt5Report, news, groundingContext, memoryContext, pelajaranCtx,
 	)
 
-	// User wants: 31b, then 26b, then 3.1 flash lite preview
-	models := []string{"gemma-4-31b-it", "gemma-4-26b-a4b-it", "gemini-3.1-flash-lite-preview"}
+	// Fallback logic: Coba HuggingFace dulu (karena Google bermasalah), lalu Gemini
+	hfModels := []string{"google/gemma-4-31B-it", "google/gemma-4-26b-a4b-it"}
+	geminiModels := []string{"gemini-3.1-flash-lite-preview", "gemini-1.5-flash"}
+
 	var (
 		pesan string
 		err   error
 	)
-	for _, m := range models {
-		pesan, err = callGeminiNative(promptString, systemPersona, m, false)
-		if err == nil {
+
+	// 1. Coba HuggingFace
+	for _, m := range hfModels {
+		fmt.Printf("🚀 Mencoba HuggingFace Model: %s\n", m)
+		pesan, err = callHuggingFaceNative(promptString, m)
+		if err == nil && strings.Contains(pesan, "|") {
 			return pesan
 		}
-		fmt.Printf("⚠️  Model %s gagal, mencoba fallback...\n", m)
+		fmt.Printf("⚠️  HuggingFace %s gagal: %v\n", m, err)
 	}
 
-	return "HOLD|0|0|0|Semua Model Gagal"
+	// 2. Coba Gemini (Fallback Terakhir)
+	for _, m := range geminiModels {
+		fmt.Printf("🚀 Mencoba Gemini Fallback: %s\n", m)
+		pesan, err = callGeminiNative(promptString, systemPersona, m, false)
+		if err == nil && strings.Contains(pesan, "|") {
+			return pesan
+		}
+		fmt.Printf("⚠️  Gemini %s gagal: %v\n", m, err)
+	}
+
+	return "HOLD|0|0|0|Semua Model (HF & Gemini) Gagal"
 }
 
 // =========================================================================
@@ -990,17 +1034,24 @@ func initKeys() {
 	}
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
-		if strings.HasPrefix(line, "GEMINI_API_KEY_") {
-			parts := strings.Split(line, "=")
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[1])
-				if key != "" {
-					geminiApiKeys = append(geminiApiKeys, key)
-				}
-			}
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+
+		if strings.HasPrefix(key, "GEMINI_API_KEY_") {
+			geminiApiKeys = append(geminiApiKeys, val)
+		} else if key == "HF_API_KEY" {
+			hfApiKey = val
 		}
 	}
-	fmt.Printf("✅ Terdeteksi %d API Key Gemini.\n", len(geminiApiKeys))
+	fmt.Printf("✅ Terdeteksi %d API Key Gemini & HF Key Aktif.\n", len(geminiApiKeys))
 }
 
 func getGeminiAPIKey() string {
@@ -1012,6 +1063,59 @@ func getGeminiAPIKey() string {
 	key := geminiApiKeys[currentKeyIdx]
 	currentKeyIdx = (currentKeyIdx + 1) % len(geminiApiKeys)
 	return key
+}
+
+func callHuggingFaceNative(prompt, model string) (string, error) {
+	if hfApiKey == "" {
+		return "", fmt.Errorf("HF_API_KEY tidak dikonfigurasi")
+	}
+
+	apiUrl := fmt.Sprintf("https://api-inference.huggingface.co/models/%s", model)
+	
+	// HuggingFace payload for Text Generation
+	payload := map[string]interface{}{
+		"inputs": prompt,
+		"parameters": map[string]interface{}{
+			"max_new_tokens": 512,
+			"temperature":    0.7,
+			"return_full_text": false,
+		},
+	}
+
+	jsonValue, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", apiUrl, bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+hfApiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 90 * time.Second} // Long timeout for large HF models
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HF API error: %s - %s", resp.Status, string(body))
+	}
+
+	// HF returns an array: [{"generated_text": "..."}]
+	var hfResp []struct {
+		GeneratedText string `json:"generated_text"`
+	}
+	if err := json.Unmarshal(body, &hfResp); err != nil {
+		// Sometimes it returns a single object if error or different task
+		return "", fmt.Errorf("unexpected HF response: %s", string(body))
+	}
+
+	if len(hfResp) > 0 {
+		return strings.TrimSpace(hfResp[0].GeneratedText), nil
+	}
+
+	return "", fmt.Errorf("empty response from HuggingFace")
 }
 
 func callGeminiNative(prompt, system, model string, useSearch bool) (string, error) {
