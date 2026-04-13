@@ -77,12 +77,11 @@ bool IsActiveSession()
    TimeToStruct(TimeGMT(), dt);
    int hour = dt.hour;
    
-   // Waktu UTC: 23:00 UTC = 06:00 WIB
-   bool tokyo   = (hour == 23 || hour < 7);
-   bool london  = (hour >= 7 && hour < 16);
-   bool newyork = (hour >= 13 && hour < InpSessionEndUTC); // Akhir sesi biasanya 21 UTC (04:00 WIB)
+   // Aktif mulai jam 06:00 UTC (Pre-London / Frankfurt) hingga 21:00 UTC
+   bool pre_london = (hour >= 6 && hour < 16);
+   bool newyork    = (hour >= 13 && hour < InpSessionEndUTC); 
    
-   return (tokyo || london || newyork);
+   return (pre_london || newyork);
   }
 
 // ==========================================
