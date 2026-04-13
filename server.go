@@ -450,6 +450,24 @@ func main() {
 	// Endpoint API: Web Dashboard Metrics
 	http.HandleFunc("/api/stats", handleApiStats)
 
+	// Heartbeat Endpoint: Agar Dashboard dapat update Live Equity meski AI tidur (biasanya luar sesi MT5)
+	http.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		payload := string(body)
+		
+		symbol := "UNKNOWN"
+		if idx := strings.Index(payload, "SYMBOL:"); idx != -1 {
+			rest := payload[idx+7:]
+			if end := strings.IndexAny(rest, " |\n"); end != -1 {
+				symbol = rest[:end]
+			} else {
+				symbol = strings.TrimSpace(rest)
+			}
+		}
+		go updateLatestStatus(symbol, payload)
+		w.WriteHeader(http.StatusOK)
+	})
+
 	// PHASE 3: Scalper Drone Endpoint
 	http.HandleFunc("/scalp", handleScalperDrone)
 
@@ -460,6 +478,7 @@ func main() {
 	fmt.Println("📍 POST /          → Oracle Deep Thinker (M1 Swing)")
 	fmt.Println("📍 POST /feedback  → Feedback Loop (Win/Loss Tracker)")
 	fmt.Println("📍 POST /scalp     → Scalper Drone (M1/M5 Fast Alpha)")
+	fmt.Println("📍 POST /heartbeat → Sinkronisasi Equity 24/5")
 	fmt.Println("📍 GET  /dashboard → Web Dashboard UI")
 	log.Fatal(http.ListenAndServe(":8880", nil))
 }

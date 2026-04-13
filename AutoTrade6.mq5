@@ -466,7 +466,20 @@ void OnTimer()
    if(!IsActiveSession())
      {
       MqlDateTime dt; TimeToStruct(TimeGMT(), dt);
-      Print("💤 [Oracle] UTC ", dt.hour, ":00 — Di luar sesi. HOLD.");
+      Print("💤 [Oracle] UTC ", dt.hour, ":00 — Di luar sesi. (Heartbeat sent)");
+      
+      // Heartbeat sinkronisasi Dashboard 24/5 saat robot tidur
+      string hbPayload = StringFormat("SYMBOL:%s|FLOAT:%.2f|BAL:%.2f|F_MARG:%.2f|POS:%d", 
+                                  _Symbol, AccountInfoDouble(ACCOUNT_PROFIT), AccountInfoDouble(ACCOUNT_BALANCE), 
+                                  AccountInfoDouble(ACCOUNT_MARGIN_FREE), current_pos);
+      char data[], res[];
+      StringToCharArray(hbPayload, data, 0, StringLen(hbPayload));
+      string headers = "Content-Type: text/plain\r\n";
+      string hbUrl = InpServerUrl;
+      if(StringSubstr(hbUrl, StringLen(hbUrl)-1) != "/") hbUrl += "/";
+      hbUrl += "heartbeat";
+      WebRequest("POST", hbUrl, headers, 3000, data, res, headers);
+      
       return;
      }
 
