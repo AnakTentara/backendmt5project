@@ -34,7 +34,7 @@ const (
 
 var (
 	ActiveGroundingMode = GROUNDING_GO_SCRAPER
-	AIGroundingModel    = "gemma-4-26b-a4b-it"
+	AIGroundingModel    = "gemma-4-31b-it"
 
 	liveNewsData string = "Belum ada berita ditarik."
 
@@ -549,7 +549,7 @@ atau: HOLD|0|0|0|Alasan singkat`
 
 	prompt := fmt.Sprintf("Data Scalper: [%s]", payload)
 	reqBody := OpenAIRequest{
-		Model:    "gemini-3.1-flash-lite-preview",
+		Model:    "gemma-4-26b-a4b-it", // Model 26B yang lebih cerdas untuk prediksi Scalping
 		Messages: []Message{
 			{Role: "system", Content: systemScalper},
 			{Role: "user", Content: prompt},
@@ -913,7 +913,7 @@ ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_MAX_15_KATA|CONFIDENCE:ANGKA
 	)
 
 	reqBody := OpenAIRequest{
-		Model:     "gemini-3.1-flash-lite-preview",
+		Model:     "gemma-4-31b-it", // Main Brain menggunakan model terkuat 31B
 		WebSearch: false,
 		Messages: []Message{
 			{Role: "system", Content: systemPersona},
