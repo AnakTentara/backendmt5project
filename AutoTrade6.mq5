@@ -279,9 +279,44 @@ void ManageBreakevenTrailing()
 // ==========================================
 // FEEDBACK LOOP
 // ==========================================
+// ==========================================
+// FEEDBACK LOOP: Kirim Detail Transaksi ke Server
+// ==========================================
 void SendFeedback(string result, double profit, double balance)
   {
-   string payload = StringFormat("%s|%s|%.2f|%.2f|%s", _Symbol, result, profit, balance, "BASKET_CLOSED");
+   // Ambil detail deal terakhir dari history
+   HistorySelect(TimeCurrent()-3600, TimeCurrent());
+   int total = HistoryDealsTotal();
+   ulong  ticket = 0;
+   string type   = "N/A";
+   double vol    = 0;
+   double px_in  = 0;
+   double px_out = 0;
+
+   // Cari deal terakhir yang sesuai magic number
+   for(int i = total - 1; i >= 0; i--)
+     {
+      ulong t = HistoryDealGetTicket(i);
+      if(HistoryDealGetInteger(t, DEAL_MAGIC) == InpMagicNum && HistoryDealGetString(t, DEAL_SYMBOL) == _Symbol)
+        {
+         ticket = t;
+         long entry = HistoryDealGetInteger(t, DEAL_ENTRY);
+         vol    = HistoryDealGetDouble(t, DEAL_VOLUME);
+         px_out = HistoryDealGetDouble(t, DEAL_PRICE);
+         
+         long d_type = HistoryDealGetInteger(t, DEAL_TYPE);
+         if(d_type == DEAL_TYPE_BUY) type = "BUY";
+         else if(d_type == DEAL_TYPE_SELL) type = "SELL";
+         
+         // Untuk mendapatkan PX_IN, kita cari deal pembukanya (ini penyederhanaan)
+         // Jika ini adalah DEAL_ENTRY_OUT, px_out adalah harga tutup.
+         break; 
+        }
+     }
+
+   string payload = StringFormat("%s|%s|%.2f|%.2f|%I64u|%s|%.2f|%.5f|%.5f", 
+                                 _Symbol, result, profit, balance, ticket, type, vol, px_out, px_out);
+                                 
    char data[], res[];
    StringToCharArray(payload, data, 0, StringLen(payload));
    string headers   = "Content-Type: text/plain\r\n";
@@ -290,9 +325,9 @@ void SendFeedback(string result, double profit, double balance)
    feedUrl += "feedback";
    int httpRes = WebRequest("POST", feedUrl, headers, 4000, data, res, headers);
    if(httpRes == 200)
-      Print("💬 [Feedback] Laporan terkirim: ", result, " | Profit: $", DoubleToString(profit, 2));
+      Print("💬 [Feedback] Laporan detail terkirim: ", ticket);
    else
-      Print("❌ [Feedback] Gagal. HTTP:", httpRes);
+      Print("❌ [Feedback] Gagal detail. HTTP:", httpRes);
   }
 
 // ==========================================

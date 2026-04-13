@@ -3,106 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Oracle v9 | APEX Quant Dashboard</title>
-    <meta name="description" content="Antigravity Quant System - Real-time trading monitor for The Oracle v9 APEX ENGINE">
+    <title>Oracle v9 | Institutional Quant Engine</title>
+    <meta name="description" content="Professional dashboard for Oracle v9 APEX ENGINE">
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&family=Outfit:wght@600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
-    <div class="glass-bg"></div>
-    <div class="gradient-sphere sphere-1"></div>
-    <div class="gradient-sphere sphere-2"></div>
+<body class="institutional-theme">
+    <div class="top-bar">
+        <div class="logo-area">
+            <span class="brand">THE ORACLE</span>
+            <span class="version">v9.1 APEX</span>
+        </div>
+        <div class="system-status">
+            <span id="sync-status">DISCONNECTED</span>
+            <div class="status-dot" id="status-dot"></div>
+            <span id="last-update" class="timestamp">--:--:--</span>
+        </div>
+    </div>
 
-    <div class="container">
-        <header>
-            <div class="logo">
-                <h1>THE ORACLE <span>v9</span></h1>
-                <p>APEX Institutional Quant Engine</p>
+    <main class="dashboard-grid">
+        <!-- KPI METRICS -->
+        <section class="kpi-panel">
+            <div class="metric-box">
+                <span class="label">EQUITY</span>
+                <span id="kpi-equity" class="value mono">--</span>
+                <span id="kpi-floating" class="sub-value">--</span>
             </div>
-            <div class="header-right">
-                <div id="last-update" class="update-time">--</div>
-                <div class="status-indicator">
-                    <span class="dot" id="status-dot"></span>
-                    <span id="sync-status">Menghubungkan...</span>
-                </div>
+            <div class="metric-box">
+                <span class="label">DRAWDOWN</span>
+                <span id="kpi-drawdown" class="value mono danger">--</span>
             </div>
-        </header>
-
-        <!-- ROW 1: KPI Cards -->
-        <section class="kpi-grid">
-            <div class="kpi-card glass" id="card-equity">
-                <h3>⚡ Live Equity</h3>
-                <h2 id="kpi-equity" class="text-glow">$0.00</h2>
-                <div class="kpi-meta">
-                    <span class="label">Balance:</span> <span id="kpi-balance">$0.00</span>
-                    &nbsp;
-                    <span class="label">Float:</span> <span id="kpi-floating" class="text-neutral">$0.00</span>
-                </div>
+            <div class="metric-box">
+                <span class="label">PNL (30D)</span>
+                <span id="kpi-total-pnl" class="value mono">--</span>
             </div>
-
-            <div class="kpi-card glass">
-                <h3>📉 Max Absolute Drawdown</h3>
-                <h2 id="kpi-drawdown" class="text-danger">$0.00</h2>
-                <p class="subtext">Kerugian terbesar single-basket</p>
-            </div>
-
-            <div class="kpi-card glass">
-                <h3>🏆 Oracle Track Record</h3>
-                <div class="record-split">
-                    <div class="record-item">
-                        <span class="val text-success" id="kpi-wins">0</span>
-                        <span class="lbl">Victories</span>
-                    </div>
-                    <div class="record-item">
-                        <span class="val text-danger" id="kpi-losses">0</span>
-                        <span class="lbl">Disasters</span>
-                    </div>
-                    <div class="record-item">
-                        <span class="val" id="kpi-winrate" style="color:#00F0FF">0%</span>
-                        <span class="lbl">Win Rate</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="kpi-card glass">
-                <h3>💰 Total PnL (30 Hari)</h3>
-                <h2 id="kpi-total-pnl" class="text-glow">$0.00</h2>
-                <p class="subtext" id="trade-count">0 total trade terekam</p>
+            <div class="metric-box">
+                <span class="label">WIN RATE</span>
+                <span id="kpi-winrate" class="value mono highlight">--</span>
             </div>
         </section>
 
-        <!-- ROW 2: Chart -->
-        <section class="chart-section glass">
-            <div class="section-header">
-                <h3>📈 Cumulative Profit Growth (30 Days)</h3>
-            </div>
-            <div class="canvas-container">
+        <!-- MAIN CHART -->
+        <section class="chart-panel content-box">
+            <div class="box-header">PERFORMANCE GROWTH (CUMULATIVE USD)</div>
+            <div class="chart-container">
                 <canvas id="growthChart"></canvas>
             </div>
         </section>
 
-        <!-- ROW 3: Lessons -->
-        <section class="lessons-grid">
-            <div class="lesson-column glass">
-                <div class="section-header">
-                    <h3>🏆 Pola Kemenangan AI (Victories)</h3>
-                </div>
-                <div id="victories-list" class="list-container">
-                    <p class="loading-text">Memuat memori AI...</p>
-                </div>
-            </div>
-
-            <div class="lesson-column glass">
-                <div class="section-header">
-                    <h3>🚨 Analisis Kegagalan (Disasters)</h3>
-                </div>
-                <div id="disasters-list" class="list-container">
-                    <p class="loading-text">Memuat memori AI...</p>
-                </div>
+        <!-- TRADE HISTORY TABLE -->
+        <section class="history-panel content-box">
+            <div class="box-header">ORDER HISTORY (MT5 SYNC)</div>
+            <div class="table-wrapper">
+                <table id="trade-history-table">
+                    <thead>
+                        <tr>
+                            <th>TIME</th>
+                            <th>SYMBOL</th>
+                            <th>TICKET</th>
+                            <th>TYPE</th>
+                            <th>LOT</th>
+                            <th>PRICE IN</th>
+                            <th>PRICE OUT</th>
+                            <th>PROFIT</th>
+                            <th>PnL%</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body">
+                        <!-- Rows injected by JS -->
+                    </tbody>
+                </table>
             </div>
         </section>
-    </div>
+
+        <!-- AI LESSONS -->
+        <section class="lessons-panel">
+            <div class="content-box side-box">
+                <div class="box-header">AI VICTORIES</div>
+                <div id="victories-list" class="scroll-list"></div>
+            </div>
+            <div class="content-box side-box">
+                <div class="box-header">AI DISASTERS</div>
+                <div id="disasters-list" class="scroll-list"></div>
+            </div>
+        </section>
+    </main>
 
     <script src="app.js"></script>
 </body>

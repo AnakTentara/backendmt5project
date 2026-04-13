@@ -84,10 +84,14 @@ type MemoryEntry struct {
 	Input     string  `json:"in"`
 	Decision  string  `json:"dec"`
 	Action    string  `json:"act"`
-	EntryPx   float64 `json:"entry"`
+	EntryPx   float64 `json:"entry"` // Price In
+	ExitPx    float64 `json:"exit"`  // Price Out (Baru)
 	SL        float64 `json:"sl"`
 	TP        float64 `json:"tp"`
-	Result    string  `json:"res,omitempty"`  // "WIN" / "LOSS" / "PENDING" / "CUT"
+	Ticket    string  `json:"ticket"` // MT5 Ticket id (Baru)
+	Type      string  `json:"type"`   // BUY/SELL (Baru)
+	Volume    float64 `json:"vol"`    // Lot size (Baru)
+	Result    string  `json:"res,omitempty"`
 	ProfitUSD float64 `json:"pnl,omitempty"`
 	Balance   float64 `json:"bal,omitempty"`
 }
@@ -418,34 +422,57 @@ func main() {
 		}
 
 		body, _ := io.ReadAll(r.Body)
-		// Format: "SYMBOL|RESULT|PROFIT_USD|BALANCE|LAST_DECISION"
-		// Contoh: "EURUSD|WIN|15.50|100775.00|SELL_LIMIT|1.17390..."
+		// Format baru: "SYMBOL|RESULT|PROFIT_USD|BALANCE|TICKET|TYPE|VOL|PX_IN|PX_OUT"
 		raw := string(body)
-		parts := strings.SplitN(raw, "|", 5)
+		parts := strings.Split(raw, "|")
 
 		if len(parts) < 4 {
-			http.Error(w, "Format salah. Harap: SYMBOL|RESULT|PROFIT_USD|BALANCE", http.StatusBadRequest)
+			http.Error(w, "Format salah.", http.StatusBadRequest)
 			return
 		}
 
 		symbol := strings.TrimSpace(parts[0])
 		result := strings.TrimSpace(parts[1])
-		profitUSD := 0.0
-		balance := 0.0
+		var profitUSD, balance, vol, pxIn, pxOut float64
 		fmt.Sscanf(parts[2], "%f", &profitUSD)
 		fmt.Sscanf(parts[3], "%f", &balance)
-		lastDecision := ""
-		if len(parts) >= 5 {
-			lastDecision = parts[4]
+		
+		ticket := "-"
+		tradeType := "-"
+		if len(parts) >= 9 {
+			ticket = parts[4]
+			tradeType = parts[5]
+			fmt.Sscanf(parts[6], "%f", &vol)
+			fmt.Sscanf(parts[7], "%f", &pxIn)
+			fmt.Sscanf(parts[8], "%f", &pxOut)
 		}
 
-		fmt.Printf("\n💬 [Feedback] %s: %s | PnL=$%.2f | Bal=$%.2f\n", symbol, result, profitUSD, balance)
+		fmt.Printf("\n💬 [Feedback] %s: %s | Ticket:%s | PnL=$%.2f\n", symbol, result, ticket, profitUSD)
 
-		// Update memori dengan hasil
-		updateLastMemory(symbol, result, profitUSD, balance)
+		// Update memori dengan hasil mendetail
+		lastDecision := ""
+		memoryMu.Lock()
+		mem := loadMemory()
+		if entries, exists := mem.History[symbol]; exists && len(entries) > 0 {
+			// Update entri PENDING terakhir dengan data riil dari MT5
+			idx := len(entries) - 1
+			lastDecision = mem.History[symbol][idx].Decision // Ambil keputusan asli AI
+			mem.History[symbol][idx].Result = result
+			mem.History[symbol][idx].ProfitUSD = profitUSD
+			mem.History[symbol][idx].Balance = balance
+			mem.History[symbol][idx].Ticket = ticket
+			mem.History[symbol][idx].Type = tradeType
+			mem.History[symbol][idx].Volume = vol
+			mem.History[symbol][idx].EntryPx = pxIn
+			mem.History[symbol][idx].ExitPx = pxOut
+		}
+		saveMemory(mem)
+		memoryMu.Unlock()
 
 		// Evaluasi untuk PelajaranBerharga
-		go recordLesson(symbol, lastDecision, "", profitUSD, balance)
+		if lastDecision != "" {
+			go recordLesson(symbol, lastDecision, "", profitUSD, balance)
+		}
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -723,6 +750,7 @@ func handleApiStats(w http.ResponseWriter, r *http.Request) {
 		"total_pnl":        totalPnL,
 		"latest_lessons":   pb.Victories,
 		"latest_disasters": pb.Disasters,
+		"history":          mem.History, // Tambahkan ini untuk tabel Riwayat
 	}
 
 	json.NewEncoder(w).Encode(response)
