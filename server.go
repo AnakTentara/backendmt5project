@@ -628,11 +628,16 @@ func handleApiStats(w http.ResponseWriter, r *http.Request) {
 
 	mu.Lock()
 	for _, status := range LatestMT5Status {
+		// FIX: Jika satu akun punya banyak pair, jangan di-SUM (nanti jadi $400k).
+		// Kita ambil nilai tertinggi yang dilaporkan (harus sama semua di satu akun).
 		if val, exists := status["BAL"]; exists {
-			totalBalance += val
+			if val > totalBalance {
+				totalBalance = val
+			}
 		}
+		// Floating profit juga bersifat akun-luas, ambil yang terbaru (timpa terus).
 		if val, exists := status["FLOAT"]; exists {
-			totalFloating += val
+			totalFloating = val
 		}
 	}
 	mu.Unlock()
