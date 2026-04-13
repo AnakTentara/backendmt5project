@@ -34,12 +34,14 @@ const (
 
 var (
 	ActiveGroundingMode = GROUNDING_GO_SCRAPER
-	AIGroundingModel    = "gemma-4-31b-it"
+	AIGroundingModel    = "gemma-4-26b-a4b-it" // Default native model
 
 	liveNewsData string = "Belum ada berita ditarik."
 
-	apiKey     string = "aduhkaboaw91h9i28hoablkdl09190jelnkaknldwa90hoi2"
-	apiBaseUrl string = "https://ai.aikeigroup.net/v1/chat/completions"
+	// Rotator kunci API
+	geminiApiKeys []string
+	currentKeyIdx int
+	keyMu         sync.Mutex
 
 	mu       sync.Mutex
 	memoryMu sync.Mutex
@@ -53,22 +55,47 @@ var (
 )
 
 // =========================================================================
-// STRUKTUR DATA
+// STRUKTUR DATA NATIVE GEMINI
 // =========================================================================
-type OpenAIRequest struct {
-	Model     string    `json:"model"`
-	Messages  []Message `json:"messages"`
-	WebSearch bool      `json:"web_search,omitempty"`
+type GeminiRequest struct {
+	Contents         []Content         `json:"contents"`
+	SystemInstruction *Content         `json:"system_instruction,omitempty"`
+	Tools            []Tool            `json:"tools,omitempty"`
+	GenerationConfig *GenerationConfig `json:"generationConfig,omitempty"`
 }
+
+type Content struct {
+	Role  string `json:"role,omitempty"`
+	Parts []Part `json:"parts"`
+}
+
+type Part struct {
+	Text string `json:"text"`
+}
+
+type Tool struct {
+	GoogleSearchRetrieval *struct{} `json:"google_search_retrieval,omitempty"`
+}
+
+type GenerationConfig struct {
+	Temperature     float64 `json:"temperature,omitempty"`
+	TopP            float64 `json:"topP,omitempty"`
+	TopK            int     `json:"topK,omitempty"`
+	MaxOutputTokens int     `json:"maxOutputTokens,omitempty"`
+}
+
+type GeminiResponse struct {
+	Candidates []struct {
+		Content struct {
+			Parts []Part `json:"parts"`
+		} `json:"content"`
+		GroundingMetadata interface{} `json:"groundingMetadata,omitempty"`
+	} `json:"candidates"`
+}
+
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-}
-type OpenAIResponse struct {
-	Choices []struct {
-		Message           Message                `json:"message"`
-		GroundingMetadata map[string]interface{} `json:"groundingMetadata,omitempty"`
-	} `json:"choices"`
 }
 type FFEvent struct {
 	Title   string `json:"title"`
@@ -274,34 +301,11 @@ Loss: $%.2f dari Balance $%.2f
 Tulis dalam bahasa Indonesia. Identifikasi: (1) akar penyebab kegagalan, (2) sinyal bahaya yang seharusnya terdeteksi, (3) pelajaran agar tidak terulang.`, pnl/balance*100, symbol, decision, context, pnl, balance)
 	}
 
-	reqBody := OpenAIRequest{
-		Model: "gemini-3.1-flash-lite-preview",
-		Messages: []Message{
-			{Role: "user", Content: prompt},
-		},
-	}
-	jsonValue, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
+	res, err := callGeminiNative(prompt, "Anda adalah analis trading profesional.", "gemini-1.5-flash", false)
 	if err != nil {
-		return "Gagal generate analisis."
+		return "Analisis tidak tersedia."
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "Gagal memanggil AI untuk analisis."
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var aiResp OpenAIResponse
-	json.Unmarshal(body, &aiResp)
-
-	if len(aiResp.Choices) > 0 {
-		return strings.TrimSpace(aiResp.Choices[0].Message.Content)
-	}
-	return "Analisis tidak tersedia."
+	return res
 }
 
 func recordLesson(symbol, decision, context string, pnl, balance float64) {
@@ -348,6 +352,7 @@ func recordLesson(symbol, decision, context string, pnl, balance float64) {
 // MAIN: SERVER
 // =========================================================================
 func main() {
+	initKeys()
 	go beritaForexRoutine()
 
 	// Endpoint utama: Konsultasi Oracle
@@ -579,40 +584,9 @@ atau: SCALP_SELL|0|SL_ABSOLUT|TP_ABSOLUT|Alasan singkat
 atau: HOLD|0|0|0|Alasan singkat`
 
 	prompt := fmt.Sprintf("Data Scalper: [%s]", payload)
-	reqBody := OpenAIRequest{
-		Model: "gemma-4-26b-a4b-it", // Model 26B yang lebih cerdas untuk prediksi Scalping
-		Messages: []Message{
-			{Role: "system", Content: systemScalper},
-			{Role: "user", Content: prompt},
-		},
-	}
-
-	jsonValue, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
+	decision, err := callGeminiNative(prompt, systemScalper, "gemma-4-26b-a4b-it", false)
 	if err != nil {
-		w.Write([]byte("HOLD|0|0|0|Internal error"))
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		w.Write([]byte("HOLD|0|0|0|AI timeout"))
-		return
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	var aiResp OpenAIResponse
-	json.Unmarshal(respBody, &aiResp)
-
-	decision := "HOLD|0|0|0|No signal"
-	if len(aiResp.Choices) > 0 {
-		decision = strings.TrimSpace(aiResp.Choices[0].Message.Content)
-		if !strings.Contains(decision, "|") {
-			decision = "HOLD|0|0|0|AI mengoceh"
-		}
+		decision = "HOLD|0|0|0|AI error"
 	}
 
 	fmt.Printf("[Scalper] 🐝 %s → %s\n", symbol, decision)
@@ -868,34 +842,13 @@ func performScraperGrounding(context string) string {
 }
 
 func performAIGrounding(context string) string {
-	fmt.Println("📡 [AIGrounding] AI Khusus menjelajah internet dengan model:", AIGroundingModel)
-	reqBody := OpenAIRequest{
-		Model:     AIGroundingModel,
-		WebSearch: true,
-		Messages: []Message{
-			{Role: "user", Content: "Browsing internet sekarang. Berikan ringkasan berita terpenting hari ini untuk market forex, maksimal 3 kalimat padat. Situasi: " + context},
-		},
-	}
-	jsonValue, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
+	fmt.Println("📡 [AIGrounding] AI Khusus menjelajah internet...")
+	prompt := "Browsing internet sekarang. Berikan ringkasan berita terpenting hari ini untuk market forex, maksimal 3 kalimat padat. Situasi: " + context
+	res, err := callGeminiNative(prompt, "Anda adalah asisten riset pasar.", "gemini-1.5-flash", true)
 	if err != nil {
-		return "Gagal menyiapkan request AIGrounding."
+		return "AI Grounding gagal: " + err.Error()
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "Gagal memanggil AIGrounding Server."
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var aiResp OpenAIResponse
-	json.Unmarshal(body, &aiResp)
-	if len(aiResp.Choices) > 0 {
-		return "AI Grounding: " + strings.TrimSpace(aiResp.Choices[0].Message.Content)
-	}
-	return "AI Grounding gagal."
+	return "AI Grounding: " + res
 }
 
 // =========================================================================
@@ -1008,46 +961,115 @@ ACTION|ENTRY_PRICE|STOPLOSS|TAKEPROFIT|ALASAN_MAX_15_KATA|CONFIDENCE:ANGKA
 		symbol, newsSafetyNote, globalCtx, mt5Report, news, groundingContext, memoryContext, pelajaranCtx,
 	)
 
-	reqBody := OpenAIRequest{
-		Model:     "gemma-4-31b-it", // Main Brain menggunakan model terkuat 31B
-		WebSearch: false,
-		Messages: []Message{
-			{Role: "system", Content: systemPersona},
-			{Role: "user", Content: promptString},
+	// User wants: 31b, then 26b, then 3.1 flash lite preview
+	models := []string{"gemma-4-31b-it", "gemma-4-26b-a4b-it", "gemini-3.1-flash-lite-preview"}
+	var (
+		pesan string
+		err   error
+	)
+	for _, m := range models {
+		pesan, err = callGeminiNative(promptString, systemPersona, m, false)
+		if err == nil {
+			return pesan
+		}
+		fmt.Printf("⚠️  Model %s gagal, mencoba fallback...\n", m)
+	}
+
+	return "HOLD|0|0|0|Semua Model Gagal"
+}
+
+// =========================================================================
+// NATIVE GENAI CORE ENGINE
+// =========================================================================
+
+func initKeys() {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		log.Println("⚠️  Gagal membaca .env, menggunakan default environment")
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "GEMINI_API_KEY_") {
+			parts := strings.Split(line, "=")
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[1])
+				if key != "" {
+					geminiApiKeys = append(geminiApiKeys, key)
+				}
+			}
+		}
+	}
+	fmt.Printf("✅ Terdeteksi %d API Key Gemini.\n", len(geminiApiKeys))
+}
+
+func getGeminiAPIKey() string {
+	keyMu.Lock()
+	defer keyMu.Unlock()
+	if len(geminiApiKeys) == 0 {
+		return ""
+	}
+	key := geminiApiKeys[currentKeyIdx]
+	currentKeyIdx = (currentKeyIdx + 1) % len(geminiApiKeys)
+	return key
+}
+
+func callGeminiNative(prompt, system, model string, useSearch bool) (string, error) {
+	key := getGeminiAPIKey()
+	if key == "" {
+		return "", fmt.Errorf("no API keys available")
+	}
+
+	// Native Google GenAI URL
+	apiUrl := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, key)
+
+	reqObj := GeminiRequest{
+		Contents: []Content{
+			{
+				Parts: []Part{{Text: prompt}},
+			},
+		},
+		SystemInstruction: &Content{
+			Parts: []Part{{Text: system}},
+		},
+		GenerationConfig: &GenerationConfig{
+			Temperature: 0.7,
 		},
 	}
 
-	jsonValue, _ := json.Marshal(reqBody)
-	req, err := http.NewRequest("POST", apiBaseUrl, bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return "HOLD|0|0|0|Error Internal HTTP Server"
+	if useSearch {
+		reqObj.Tools = []Tool{
+			{GoogleSearchRetrieval: &struct{}{}},
+		}
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	jsonValue, _ := json.Marshal(reqObj)
+	req, err := http.NewRequest("POST", apiUrl, bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 45 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "HOLD|0|0|0|Gagal menghubungi Rotator Gemini"
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	var aiResp OpenAIResponse
-	json.Unmarshal(body, &aiResp)
-
-	if len(aiResp.Choices) > 0 {
-		if aiResp.Choices[0].GroundingMetadata != nil {
-			fmt.Println("✅ [Oracle] Google Search Grounding aktif!")
-		} else {
-			fmt.Println("⚠️  [Oracle] Menjawab tanpa Google Search Grounding.")
-		}
-		pesan := strings.TrimSpace(aiResp.Choices[0].Message.Content)
-		if !strings.Contains(pesan, "|") {
-			return "HOLD|0|0|0|AI Mengoceh Tidak Karuan"
-		}
-		return pesan
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API error: %s - %s", resp.Status, string(body))
 	}
 
-	return "HOLD|0|0|0|Rotator Kosong"
+	var geminiResp GeminiResponse
+	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		return "", err
+	}
+
+	if len(geminiResp.Candidates) > 0 && len(geminiResp.Candidates[0].Content.Parts) > 0 {
+		return strings.TrimSpace(geminiResp.Candidates[0].Content.Parts[0].Text), nil
+	}
+
+	return "", fmt.Errorf("empty response from Gemini")
 }
