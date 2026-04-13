@@ -24,12 +24,12 @@ const (
 	GROUNDING_GO_SCRAPER   = 1
 	GROUNDING_AI_DEDICATED = 2
 
-	MEMORY_FILE          = "memory/oracle_memory.json"
-	PELAJARAN_FILE       = "PelajaranBerharga.json"
-	MAX_MEMORY_DAYS      = 30
-	MAX_ENTRIES_SYMBOL   = 720  // ~24 entry/hari * 30 hari
-	DISASTER_THRESHOLD   = -0.50 // Loss >= 50% dari balance = Disaster
-	VICTORY_MIN_USD      = 2.0   // Minimal profit USD agar dicatat sebagai pelajaran
+	MEMORY_FILE        = "memory/oracle_memory.json"
+	PELAJARAN_FILE     = "PelajaranBerharga.json"
+	MAX_MEMORY_DAYS    = 30
+	MAX_ENTRIES_SYMBOL = 720   // ~24 entry/hari * 30 hari
+	DISASTER_THRESHOLD = -0.50 // Loss >= 50% dari balance = Disaster
+	VICTORY_MIN_USD    = 2.0   // Minimal profit USD agar dicatat sebagai pelajaran
 )
 
 var (
@@ -41,8 +41,8 @@ var (
 	apiKey     string = "aduhkaboaw91h9i28hoablkdl09190jelnkaknldwa90hoi2"
 	apiBaseUrl string = "https://ai.aikeigroup.net/v1/chat/completions"
 
-	mu        sync.Mutex
-	memoryMu  sync.Mutex
+	mu       sync.Mutex
+	memoryMu sync.Mutex
 
 	// Menyimpan data Tick-by-Tick terakhir dari MQL5 untuk web dashboard
 	LatestMT5Status = make(map[string]map[string]float64)
@@ -74,7 +74,7 @@ type FFEvent struct {
 	Title   string `json:"title"`
 	Impact  string `json:"impact"`
 	Country string `json:"country"`
-	Date    string `json:"date"`   // Tambah field date untuk filter hari ini
+	Date    string `json:"date"` // Tambah field date untuk filter hari ini
 }
 
 // --- MEMORY ---
@@ -436,7 +436,7 @@ func main() {
 		var profitUSD, balance, vol, pxIn, pxOut float64
 		fmt.Sscanf(parts[2], "%f", &profitUSD)
 		fmt.Sscanf(parts[3], "%f", &balance)
-		
+
 		ticket := "-"
 		tradeType := "-"
 		if len(parts) >= 9 {
@@ -485,7 +485,7 @@ func main() {
 	http.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		payload := string(body)
-		
+
 		symbol := "UNKNOWN"
 		if idx := strings.Index(payload, "SYMBOL:"); idx != -1 {
 			rest := payload[idx+7:]
@@ -580,7 +580,7 @@ atau: HOLD|0|0|0|Alasan singkat`
 
 	prompt := fmt.Sprintf("Data Scalper: [%s]", payload)
 	reqBody := OpenAIRequest{
-		Model:    "gemma-4-26b-a4b-it", // Model 26B yang lebih cerdas untuk prediksi Scalping
+		Model: "gemma-4-26b-a4b-it", // Model 26B yang lebih cerdas untuk prediksi Scalping
 		Messages: []Message{
 			{Role: "system", Content: systemScalper},
 			{Role: "user", Content: prompt},
@@ -623,11 +623,11 @@ atau: HOLD|0|0|0|Alasan singkat`
 func updateLatestStatus(symbol, payload string) {
 	mu.Lock()
 	defer mu.Unlock()
-	
+
 	if LatestMT5Status[symbol] == nil {
 		LatestMT5Status[symbol] = make(map[string]float64)
 	}
-	
+
 	LatestMT5Status[symbol]["BAL"] = extractValue(payload, "BAL")
 	LatestMT5Status[symbol]["FLOAT"] = extractValue(payload, "FLOAT")
 	LatestMT5Status[symbol]["F_MARG"] = extractValue(payload, "F_MARG")
@@ -649,7 +649,7 @@ func handleApiStats(w http.ResponseWriter, r *http.Request) {
 	totalBalance := 0.0
 	totalFloating := 0.0
 	var overallChart []ChartPoint
-	
+
 	// Hitung PnL harian untuk Chart
 	dailyPnL := make(map[string]float64)
 
@@ -687,8 +687,8 @@ func handleApiStats(w http.ResponseWriter, r *http.Request) {
 		dates = append(dates, k)
 	}
 	sort.Strings(dates)
-	
-	// Bangun balance chart semu berdasarkan balance saat ini mundur, 
+
+	// Bangun balance chart semu berdasarkan balance saat ini mundur,
 	// atau profit kumulatif harian maju. Kita pakai Cumulative Profit:
 	cumProfit := 0.0
 	for _, d := range dates {
@@ -947,7 +947,9 @@ func tanyakanWarrenBuffet(mt5Report, news, memoryContext, symbol string) string 
 	if len(pb.Disasters) > 0 {
 		pelajaranCtx += "\n⚠️ PELAJARAN DARI DISASTER MASA LALU:\n"
 		for i, d := range pb.Disasters {
-			if i >= 2 { break } // Ambil 2 disaster terakhir
+			if i >= 2 {
+				break
+			} // Ambil 2 disaster terakhir
 			pelajaranCtx += fmt.Sprintf("  ❌ [%s] %s: %s\n", d.Date, d.Symbol, d.Analysis[:min(150, len(d.Analysis))])
 		}
 	}
