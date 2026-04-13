@@ -213,8 +213,64 @@ td {
 .success { color: var(--success); }
 .highlight { color: var(--highlight); }
 
+/* RESPONSIVITY UPGRADE */
 @media (max-width: 1000px) {
     .dashboard-grid {
         grid-template-columns: 1fr;
+    }
+    .lessons-panel {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 0 10px 20px 10px;
+    }
+    
+    .top-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+
+    .metric-box .value {
+        font-size: 1.4rem;
+    }
+
+    .lessons-panel {
+        grid-template-columns: 1fr;
+    }
+    
+    .chart-panel {
+        height: 300px;
+    }
+
+    table {
+        min-width: 800px; /* Jaga agar tabel tidak menyempit gila-gilaan */
+    }
+    
+    .table-wrapper {
+        border: 1px solid var(--border-dim);
+        border-radius: 4px;
+    }
+}
+
+@media (max-width: 480px) {
+    .kpi-panel {
+        grid-template-columns: 1fr 1fr; /* 2 kolom untuk HP */
+    }
+    
+    .metric-box {
+        padding: 10px 15px;
+    }
+    
+    .metric-box .value {
+        font-size: 1.1rem;
+    }
+    
+    .box-header {
+        font-size: 0.65rem;
     }
 }
