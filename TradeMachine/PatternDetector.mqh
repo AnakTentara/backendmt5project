@@ -27,11 +27,11 @@ void PatternDetector_Init() {
 void UpdateDonchian_M5() {
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    if(CopyRates(_Symbol, PERIOD_M5, 0, 20, rates) < 20) return;
+    if(CopyRates(_Symbol, PERIOD_M5, 0, Inp_SD_LookbackBars + 5, rates) < Inp_SD_LookbackBars + 5) return;
     
-    double hi = rates[2].high;
-    double lo = rates[2].low;
-    for(int i = 3; i <= 15; i++) {
+    double hi = -DBL_MAX;
+    double lo = DBL_MAX;
+    for(int i = 2; i <= Inp_SD_LookbackBars; i++) {
         if(rates[i].high > hi) hi = rates[i].high;
         if(rates[i].low < lo)  lo = rates[i].low;
     }
@@ -44,50 +44,50 @@ void ScanPatterns_M5() {
     
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    if(CopyRates(_Symbol, PERIOD_M5, 0, 20, rates) < 20) return;
-    
-    double rng1 = rates[1].high - rates[1].low;
-    double body1 = MathAbs(rates[1].close - rates[1].open);
-    if(rng1 <= 0 || (body1 / rng1) < 0.50) return; // Require strong conviction breakout bar (body >= 50%)
+    if(CopyRates(_Symbol, PERIOD_M5, 0, Inp_SD_LookbackBars + 5, rates) < Inp_SD_LookbackBars + 5) return;
     
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     
-    // 1. Breakout Long Setup (Donchian breakout on previous closed bar + H1 alignment)
-    if(rates[1].close > g_donchian_high && rates[1].close > rates[1].open && HigherTFsAlignedBullish()) {
-        double swing_lo = GetLocalM5SwingLow(Inp_LocalSwingBars);
-        if(swing_lo == 0) swing_lo = ask - 200.0;
-        double sl_dist = (ask - swing_lo) + Inp_SL_Buffer_Pips;
-        sl_dist = MathMax(Inp_MinSL_Points, MathMin(Inp_MaxSL_Points, sl_dist));
-        
-        g_last_pattern.type = PATTERN_BASE_BREAKOUT_UP;
+    double swing_hi = g_donchian_high;
+    double swing_lo = g_donchian_low;
+    if(swing_hi <= 0 || swing_lo <= 0) return;
+    
+    // 1. BUY: Supply Zone Breakout in past 5 bars + Retest of broken supply zone + Bullish Confirmation
+    bool broken_up = false;
+    for(int b = 1; b <= 5; b++) {
+        if(rates[b].close > swing_hi) { broken_up = true; break; }
+    }
+    if(broken_up && rates[1].low <= swing_hi + Inp_SD_RetestZone_Pts && rates[1].close >= swing_hi && rates[1].close > rates[1].open) {
+        double sl_dist = Inp_MinSL_Points;
+        g_last_pattern.type = PATTERN_SD_RETEST_BUY;
         g_last_pattern.entry_price = ask;
         g_last_pattern.sl_price = NormalizeDouble(ask - sl_dist, 0);
-        g_last_pattern.tp1_price = NormalizeDouble(ask + sl_dist * Inp_TP1_RR, 0);
+        g_last_pattern.tp1_price = NormalizeDouble(ask + Inp_LockProfit_Pts, 0);
         g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
-        g_last_pattern.tp2_price = NormalizeDouble(ask + sl_dist * Inp_TP2_RR, 0);
+        g_last_pattern.tp2_price = NormalizeDouble(ask + 3000.0, 0); // Big wave runner
         g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
-        g_last_pattern.confidence = 85;
+        g_last_pattern.confidence = 90;
         g_last_pattern.is_valid = true;
         g_last_pattern.detected_time = TimeCurrent();
         return;
     }
     
-    // 2. Breakout Short Setup (Donchian breakdown on previous closed bar + H1 alignment)
-    if(rates[1].close < g_donchian_low && rates[1].close < rates[1].open && HigherTFsAlignedBearish()) {
-        double swing_hi = GetLocalM5SwingHigh(Inp_LocalSwingBars);
-        if(swing_hi == 0) swing_hi = bid + 200.0;
-        double sl_dist = (swing_hi - bid) + Inp_SL_Buffer_Pips;
-        sl_dist = MathMax(Inp_MinSL_Points, MathMin(Inp_MaxSL_Points, sl_dist));
-        
-        g_last_pattern.type = PATTERN_BASE_BREAKOUT_DOWN;
+    // 2. SELL: Demand Zone Breakdown in past 5 bars + Retest of broken demand zone + Bearish Confirmation
+    bool broken_dn = false;
+    for(int b = 1; b <= 5; b++) {
+        if(rates[b].close < swing_lo) { broken_dn = true; break; }
+    }
+    if(broken_dn && rates[1].high >= swing_lo - Inp_SD_RetestZone_Pts && rates[1].close <= swing_lo && rates[1].close < rates[1].open) {
+        double sl_dist = Inp_MinSL_Points;
+        g_last_pattern.type = PATTERN_SD_RETEST_SELL;
         g_last_pattern.entry_price = bid;
         g_last_pattern.sl_price = NormalizeDouble(bid + sl_dist, 0);
-        g_last_pattern.tp1_price = NormalizeDouble(bid - sl_dist * Inp_TP1_RR, 0);
+        g_last_pattern.tp1_price = NormalizeDouble(bid - Inp_LockProfit_Pts, 0);
         g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
-        g_last_pattern.tp2_price = NormalizeDouble(bid - sl_dist * Inp_TP2_RR, 0);
+        g_last_pattern.tp2_price = NormalizeDouble(bid - 3000.0, 0); // Big wave runner
         g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
-        g_last_pattern.confidence = 85;
+        g_last_pattern.confidence = 90;
         g_last_pattern.is_valid = true;
         g_last_pattern.detected_time = TimeCurrent();
         return;

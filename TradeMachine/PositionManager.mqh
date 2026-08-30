@@ -59,51 +59,39 @@ void ProcessTPDraftPipeline(ManagedPosition &mp) {
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     
-    // --- PHASE 1: TP1 REACHED -> LOCK SL+ & ACTIVATE TP2 ---
-    if(!mp.draft.tp1_triggered) {
-        bool tp1_hit = (mp.type == POSITION_TYPE_BUY) ? (bid >= mp.draft.tp1_price) : (ask <= mp.draft.tp1_price);
-        if(tp1_hit) {
-            mp.draft.tp1_triggered = true;
-            mp.draft.state = TP_STATE_TP1_HIT;
-            
-            // Lock SL+ at midpoint between entry and TP1
-            if(!mp.draft.sl_plus_active) {
-                if(ModifyPositionSL(mp.ticket, mp.draft.sl_plus_price)) {
-                    mp.draft.sl_plus_active = true;
-                    Print("SL+ LOCKED: Ticket ", mp.ticket, " SL moved to ", DoubleToString(mp.draft.sl_plus_price, 0));
-                }
+    // --- PHASE 1: REACHED +200 PTS PROFIT -> LOCK RISK-FREE SL+ (+50 PTS) ---
+    if(!mp.draft.sl_plus_active) {
+        bool lock_reached = (mp.type == POSITION_TYPE_BUY) ? 
+                            (bid >= mp.entry_price + Inp_LockProfit_Pts) : 
+                            (ask <= mp.entry_price - Inp_LockProfit_Pts);
+        if(lock_reached) {
+            double slplus = (mp.type == POSITION_TYPE_BUY) ? 
+                            (mp.entry_price + Inp_LockedProfit_Value) : 
+                            (mp.entry_price - Inp_LockedProfit_Value);
+            if(ModifyPositionSL(mp.ticket, slplus)) {
+                mp.draft.sl_plus_active = true;
+                mp.sl_price = slplus;
+                Print("SL+ LOCKED: Ticket ", mp.ticket, " Risk is ZERO! Locked @ ", DoubleToString(slplus, 0));
             }
-            mp.draft.tp2_active = true;
         }
     }
     
-    // --- PHASE 2: TP2 REACHED -> ACTIVATE TRAILING STOP ---
-    if(mp.draft.tp2_active && !mp.draft.tp2_triggered) {
-        bool tp2_hit = (mp.type == POSITION_TYPE_BUY) ? (bid >= mp.draft.tp2_price) : (ask <= mp.draft.tp2_price);
-        if(tp2_hit) {
-            mp.draft.tp2_triggered = true;
-            mp.draft.tp3_active = true;
-            mp.draft.state = TP_STATE_TRAILING;
-            Print("TP2 HIT: Ticket ", mp.ticket, " Trailing Stop Activated!");
-        }
-    }
-    
-    // --- PHASE 3: TRAILING STOP MANAGEMENT ---
-    if(mp.draft.tp3_active) {
-        double trail_dist = mp.draft.tp3_trailing_dist;
-        if(trail_dist <= 0) trail_dist = 300.0; // default points
-        
+    // --- PHASE 2: WAVE RIDER TRAILING STOP (350 PTS) ---
+    if(mp.draft.sl_plus_active) {
+        double trail_dist = Inp_TrailingDist_Pts;
         if(mp.type == POSITION_TYPE_BUY) {
             double candidate_sl = bid - trail_dist;
-            double current_sl = PositionGetDouble(POSITION_SL);
-            if(candidate_sl > current_sl + 20.0) {
-                ModifyPositionSL(mp.ticket, candidate_sl);
+            if(candidate_sl > mp.sl_price + 30.0) {
+                if(ModifyPositionSL(mp.ticket, candidate_sl)) {
+                    mp.sl_price = candidate_sl;
+                }
             }
         } else {
             double candidate_sl = ask + trail_dist;
-            double current_sl = PositionGetDouble(POSITION_SL);
-            if(current_sl == 0 || candidate_sl < current_sl - 20.0) {
-                ModifyPositionSL(mp.ticket, candidate_sl);
+            if(candidate_sl < mp.sl_price - 30.0) {
+                if(ModifyPositionSL(mp.ticket, candidate_sl)) {
+                    mp.sl_price = candidate_sl;
+                }
             }
         }
     }
