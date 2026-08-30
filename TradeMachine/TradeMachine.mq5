@@ -55,11 +55,11 @@ int OnInit() {
     ErrorHandler_Init();
     
     if(!SymbolInfoInteger(_Symbol, SYMBOL_SELECT)) {
-        Alert("ERROR: Symbol not in Market Watch!");
-        return INIT_FAILED;
+        SymbolSelect(_Symbol, true);
     }
     
     long leverage = AccountInfoInteger(ACCOUNT_LEVERAGE);
+    if(leverage <= 0) leverage = 2000;
     double spread = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
     
     Print("TradeMachine initialized for ", _Symbol);
