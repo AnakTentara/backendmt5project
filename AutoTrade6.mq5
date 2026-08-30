@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Antigravity"
 #property link      "https://www.mql5.com"
-#property version   "9.00"
+#property version   "9.01"
 
 #include <Trade\Trade.mqh>
 CTrade trade;
@@ -14,7 +14,7 @@ CTrade trade;
 // ==========================================
 // INPUT PARAMETERS
 // ==========================================
-input string   InpServerUrl        = "http://103.93.129.117:8880/"; // URL Server Oracle
+input string   InpServerUrl        = "http://103.93.129.117:8880/"; // URL Server Oracle (Feedback Only)
 input double   InpInitialLot       = 0.01;      // Lot Awal
 input double   InpLotMultiplier    = 1.5;       // Faktor Darurat Martingale
 input int      InpBaseGridStep     = 1500;      // Poin Lapis Jaring
@@ -23,11 +23,14 @@ input ulong    InpMagicNum         = 606606;    // Magic Number EA
 input bool     InpSessionFilter    = true;      // Filter Sesi London+NY?
 input int      InpSessionStartUTC  = 7;         // Mulai Sesi (UTC)
 input int      InpSessionEndUTC    = 21;        // Akhir Sesi (UTC)
-input int      InpAITimeoutMs      = 12000;     // Timeout AI (ms)
+input int      InpAITimeoutMs      = 12000;     // Timeout Server (ms)
 input double   InpDailyKillPct     = 5.0;       // Daily Killswitch: Maks Loss % per hari
 input double   InpBreakevenPip     = 10.0;      // Titik Breakeven (pip float profit)
 input double   InpTrailingPip      = 20.0;      // Mulai Trailing Stop (pip)
 input int      InpScalperIntervalMin = 5;       // Interval Scalper Drone (menit)
+input int      InpRsiPeriod        = 14;        // Periode RSI (M15)
+input int      InpRsiOverbought    = 70;        // Threshold Jual
+input int      InpRsiOversold      = 30;        // Threshold Beli
 
 // ==========================================
 // STATE VARIABLES
@@ -37,23 +40,32 @@ static bool    daily_killed        = false;
 static int     win_streak          = 0;
 static int     loss_streak         = 0;
 static int     scalper_tick_count  = 0;
+static int     handle_rsi;
 
 int OnInit()
   {
    trade.SetExpertMagicNumber(InpMagicNum);
    EventSetTimer(1);
    daily_start_balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   Print("⚡ AutoTrade6 [The Oracle v9 APEX ENGINE]: Seluruh Sistem Aktif!");
+   
+   handle_rsi = iRSI(_Symbol, PERIOD_M15, InpRsiPeriod, PRICE_CLOSE);
+   if(handle_rsi == INVALID_HANDLE)
+     {
+      Print("❌ Gagal inisialisasi RSI!");
+      return(INIT_FAILED);
+     }
+   
+   Print("⚡ AutoTrade6 [AUTONOMOUS ENGINE]: Sistem Aktif Tanpa AI!");
    Print("   Session Filter  : ", InpSessionFilter ? "AKTIF (London+NY)" : "NONAKTIF (24 jam)");
    Print("   Daily Killswitch: ", InpDailyKillPct, "% max daily drawdown");
-   Print("   Breakeven       : +", InpBreakevenPip, " pip trigger");
-   Print("   Trailing Stop   : +", InpTrailingPip, " pip trigger");
+   Print("   Entry Logic     : Constant RSI (", InpRsiOversold, "/", InpRsiOverbought, ")");
    return(INIT_SUCCEEDED);
   }
 
 void OnDeinit(const int reason)
   {
    EventKillTimer();
+   IndicatorRelease(handle_rsi);
   }
 
 // ==========================================
@@ -89,7 +101,6 @@ bool IsActiveSession()
 // ==========================================
 bool CheckDailyKillswitch()
   {
-   // Reset killswitch di awal hari baru UTC
    MqlDateTime dt;
    TimeToStruct(TimeGMT(), dt);
    static int last_day = -1;
@@ -110,7 +121,7 @@ bool CheckDailyKillswitch()
 
    if(daily_loss_pct >= InpDailyKillPct)
      {
-      Print("💀 [KILLSWITCH] Daily loss mencapai ", DoubleToString(daily_loss_pct, 2), "%. SEMUA POSISI DITUTUP. Robot tidur hari ini.");
+      Print("💀 [KILLSWITCH] Daily loss mencapai ", DoubleToString(daily_loss_pct, 2), "%. SEMUA POSISI DITUTUP.");
       CloseAllPositions();
       CancelAllPendingOrders();
       daily_killed = true;
@@ -141,27 +152,13 @@ double NormalizeLot(double lot)
    return MathMax(mn, MathMin(safe, mx));
   }
 
-bool HasPendingOrder()
-  {
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      ulong ticket = OrderGetTicket(i);
-      if(OrderGetString(ORDER_SYMBOL) == _Symbol && OrderGetInteger(ORDER_MAGIC) == InpMagicNum)
-         return true;
-     }
-   return false;
-  }
-
 void CancelAllPendingOrders()
   {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       ulong ticket = OrderGetTicket(i);
       if(OrderGetString(ORDER_SYMBOL) == _Symbol && OrderGetInteger(ORDER_MAGIC) == InpMagicNum)
-        {
          trade.OrderDelete(ticket);
-         Print("🗑️ [Oracle] Pending Order lama dibatalkan.");
-        }
      }
   }
 
@@ -184,21 +181,14 @@ double GetDynamicLot()
   {
    double lot = InpInitialLot;
    if(win_streak >= 6)
-     {
-      // Euphoria Phase—Kembali ke awal (mean-reversion warning)
       lot = InpInitialLot;
-      Print("⚠️ [DynamicLot] Win streak ", win_streak, " terlalu panjang! Reset ke lot awal untuk keamanan.");
-     }
    else if(win_streak >= 3)
-      lot = NormalizeLot(InpInitialLot * 2.0); // 0.02
+      lot = NormalizeLot(InpInitialLot * 2.0);
    else
       lot = InpInitialLot;
 
    if(loss_streak >= 2)
-     {
-      lot = InpInitialLot; // Reset saat loss beruntun
-      Print("🔻 [DynamicLot] Loss streak ", loss_streak, ". Lot direset ke minimum.");
-     }
+      lot = InpInitialLot;
    return NormalizeLot(lot);
   }
 
@@ -207,7 +197,7 @@ double GetDynamicLot()
 // ==========================================
 void ManageBreakevenTrailing()
   {
-   double pip = _Point * 10; // 1 pip = 10 poin untuk pasangan 5-digit
+   double pip = _Point * 10;
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
@@ -221,124 +211,61 @@ void ManageBreakevenTrailing()
       double current_tp         = PositionGetDouble(POSITION_TP);
       double ask                = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double bid                = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double float_pip          = 0;
+      double float_pip          = (ptype == POSITION_TYPE_BUY) ? (bid - open_price) / pip : (open_price - ask) / pip;
 
-      if(ptype == POSITION_TYPE_BUY)
-         float_pip = (bid - open_price) / pip;
-      else
-         float_pip = (open_price - ask) / pip;
-
-      // TRAILING STOP: Geser SL mengikuti profit
       if(float_pip >= InpTrailingPip)
         {
-         double new_sl = 0;
-         double trail_distance = (InpTrailingPip * 0.5) * pip; // Jaga jarak trailing 50% dari trigger
-
-         if(ptype == POSITION_TYPE_BUY)
+         double new_sl = (ptype == POSITION_TYPE_BUY) ? bid - (InpTrailingPip * 0.5 * pip) : ask + (InpTrailingPip * 0.5 * pip);
+         if((ptype == POSITION_TYPE_BUY && new_sl > current_sl + pip) || (ptype == POSITION_TYPE_SELL && (new_sl < current_sl - pip || current_sl == 0)))
            {
-            new_sl = bid - trail_distance;
-            if(new_sl > current_sl + pip) // Hanya geser ke atas
-              {
-               trade.PositionModify(ticket, new_sl, current_tp);
-               Print("📈 [Trailing] BUY trailing SL ke ", DoubleToString(new_sl, 5));
-              }
-           }
-         else
-           {
-            new_sl = ask + trail_distance;
-            if(new_sl < current_sl - pip || current_sl == 0) // Hanya geser ke bawah
-              {
-               trade.PositionModify(ticket, new_sl, current_tp);
-               Print("📉 [Trailing] SELL trailing SL ke ", DoubleToString(new_sl, 5));
-              }
+            trade.PositionModify(ticket, new_sl, current_tp);
            }
         }
-      // BREAKEVEN: Geser SL ke harga masuk saat profit cukup
       else if(float_pip >= InpBreakevenPip && current_sl != 0)
         {
-         double be_sl = 0;
-         if(ptype == POSITION_TYPE_BUY)
+         double be_sl = (ptype == POSITION_TYPE_BUY) ? open_price + pip : open_price - pip;
+         if((ptype == POSITION_TYPE_BUY && be_sl > current_sl + pip) || (ptype == POSITION_TYPE_SELL && (be_sl < current_sl - pip || current_sl == 0)))
            {
-            be_sl = open_price + pip; // +1 pip dari entry
-            if(be_sl > current_sl + pip)
-              {
-               trade.PositionModify(ticket, be_sl, current_tp);
-               Print("🛡️ [Breakeven] BUY SL digeser ke breakeven+1pip: ", DoubleToString(be_sl, 5));
-              }
-           }
-         else
-           {
-            be_sl = open_price - pip;
-            if(be_sl < current_sl - pip || current_sl == 0)
-              {
-               trade.PositionModify(ticket, be_sl, current_tp);
-               Print("🛡️ [Breakeven] SELL SL digeser ke breakeven-1pip: ", DoubleToString(be_sl, 5));
-              }
+            trade.PositionModify(ticket, be_sl, current_tp);
            }
         }
      }
   }
 
 // ==========================================
-// FEEDBACK LOOP
-// ==========================================
-// ==========================================
-// FEEDBACK LOOP: Kirim Detail Transaksi ke Server
+// FEEDBACK LOOP: Monitoring Dashboard
 // ==========================================
 void SendFeedback(string result, double profit, double balance)
   {
-   // Ambil detail deal terakhir dari history
    HistorySelect(TimeCurrent()-3600, TimeCurrent());
    int total = HistoryDealsTotal();
-   ulong  ticket = 0;
-   string type   = "N/A";
-   double vol    = 0;
-   double px_in  = 0;
-   double px_out = 0;
+   ulong ticket = 0; string type = "N/A"; double vol = 0, px_out = 0;
 
-   // Cari deal terakhir yang sesuai magic number
    for(int i = total - 1; i >= 0; i--)
      {
       ulong t = HistoryDealGetTicket(i);
       if(HistoryDealGetInteger(t, DEAL_MAGIC) == InpMagicNum && HistoryDealGetString(t, DEAL_SYMBOL) == _Symbol)
         {
-         ticket = t;
-         long entry = HistoryDealGetInteger(t, DEAL_ENTRY);
-         vol    = HistoryDealGetDouble(t, DEAL_VOLUME);
-         px_out = HistoryDealGetDouble(t, DEAL_PRICE);
-         
-         long d_type = HistoryDealGetInteger(t, DEAL_TYPE);
-         if(d_type == DEAL_TYPE_BUY) type = "BUY";
-         else if(d_type == DEAL_TYPE_SELL) type = "SELL";
-         
-         // Untuk mendapatkan PX_IN, kita cari deal pembukanya (ini penyederhanaan)
-         // Jika ini adalah DEAL_ENTRY_OUT, px_out adalah harga tutup.
+         ticket = t; vol = HistoryDealGetDouble(t, DEAL_VOLUME); px_out = HistoryDealGetDouble(t, DEAL_PRICE);
+         type = (HistoryDealGetInteger(t, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
          break; 
         }
      }
 
    string payload = StringFormat("%s|%s|%.2f|%.2f|%I64u|%s|%.2f|%.5f|%.5f", 
                                  _Symbol, result, profit, balance, ticket, type, vol, px_out, px_out);
-                                 
    char data[], res[];
    StringToCharArray(payload, data, 0, StringLen(payload));
-   string headers   = "Content-Type: text/plain\r\n";
-   string feedUrl   = InpServerUrl;
-   if(StringSubstr(feedUrl, StringLen(feedUrl)-1) != "/") feedUrl += "/";
-   feedUrl += "feedback";
-   int httpRes = WebRequest("POST", feedUrl, headers, 4000, data, res, headers);
-   if(httpRes == 200)
-      Print("💬 [Feedback] Laporan detail terkirim: ", ticket);
-   else
-      Print("❌ [Feedback] Gagal detail. HTTP:", httpRes);
+   string headers = "Content-Type: text/plain\r\n";
+   string url = InpServerUrl + "feedback";
+   WebRequest("POST", url, headers, 4000, data, res, headers);
   }
 
 // ==========================================
-// PHASE 3: SCALPER DRONE
+// PHASE 3: LOCAL SCALPER DRONE
 // ==========================================
 void RunScalperDrone()
   {
-   // Scalper hanya jalan di luar posisi aktif dan di sesi liquid
    if(GetEAPositionsTotal() > 0) return;
    if(!IsActiveSession())        return;
 
@@ -352,294 +279,105 @@ void RunScalperDrone()
    double ask      = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid      = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-   // Kirim payload mini ke endpoint /scalp
-   string payload = StringFormat("SYMBOL:%s M1:%.0f M5:%.0f SPREAD:%d ASK:%.5f BID:%.5f",
-                                  _Symbol, m1_delta, m5_delta, spread, ask, bid);
-   char data[], result[];
-   string headers = "Content-Type: text/plain\r\n";
-   string scalperUrl = InpServerUrl;
-   if(StringSubstr(scalperUrl, StringLen(scalperUrl)-1) != "/") scalperUrl += "/";
-   scalperUrl += "scalp";
+   string action = "HOLD";
+   double sl = 0, tp = 0;
+   double pip = _Point * 10;
 
-   int res = WebRequest("POST", scalperUrl, headers, 5000, data, result, headers);
-   if(res != 200) return;
-
-   string answer = CharArrayToString(result);
-   if(StringLen(answer) < 5) return;
-
-   string parts[];
-   int count = StringSplit(answer, '|', parts);
-   if(count < 5) return;
-
-   string action = parts[0];
-   StringTrimLeft(action); StringTrimRight(action);
-   double sl_ai  = StringToDouble(parts[2]);
-   double tp_ai  = StringToDouble(parts[3]);
-
-   double scalp_lot = GetDynamicLot();
-
-   if(action == "SCALP_BUY")
+   if(m1_delta > 50 && m5_delta > 50 && spread < 20)
      {
-      trade.Buy(scalp_lot, _Symbol, ask, sl_ai, tp_ai, "SCALP DRONE BUY");
-      Print("🐝 [ScalperDrone] SCALP_BUY ", DoubleToString(scalp_lot, 2), " lot");
+      action = "SCALP_BUY";
+      sl = ask - (10 * pip); tp = ask + (12 * pip);
      }
-   else if(action == "SCALP_SELL")
+   else if(m1_delta < -50 && m5_delta < -50 && spread < 20)
      {
-      trade.Sell(scalp_lot, _Symbol, bid, sl_ai, tp_ai, "SCALP DRONE SELL");
-      Print("🐝 [ScalperDrone] SCALP_SELL ", DoubleToString(scalp_lot, 2), " lot");
+      action = "SCALP_SELL";
+      sl = bid + (10 * pip); tp = bid - (12 * pip);
+     }
+
+   if(action != "HOLD")
+     {
+      double scalp_lot = GetDynamicLot();
+      if(action == "SCALP_BUY") trade.Buy(scalp_lot, _Symbol, ask, sl, tp, "LOCAL SCALP");
+      else trade.Sell(scalp_lot, _Symbol, bid, sl, tp, "LOCAL SCALP");
+      Print("🐝 [Scalper] ", action, " ", DoubleToString(scalp_lot, 2), " lot");
      }
   }
 
-//+------------------------------------------------------------------+
-//| ON TICK: MARTINGALE GRID + BREAKEVEN/TRAILING                    |
-//+------------------------------------------------------------------+
 void OnTick()
   {
-   if(IsWeekend())
-     {
-      static datetime last_wknd = 0;
-      if(TimeCurrent() - last_wknd > 3600)
-        {
-         Print("🌙 [Oracle] Weekend. Pasar Tutup. Robot Istirahat.");
-         last_wknd = TimeCurrent();
-        }
-      return;
-     }
-
-   // DAILY KILLSWITCH CHECK
-   if(CheckDailyKillswitch()) return;
-
-   // PHASE 1B: BREAKEVEN & TRAILING (tiap tick)
+   if(IsWeekend() || CheckDailyKillswitch()) return;
    ManageBreakevenTrailing();
 
-   // MARTINGALE GRID DRONE LOGIC
-   int total_pos = 0;
-   double total_profit = 0.0;
-   long grid_type = -1;
-   double extreme_price = 0.0;
-   double highest_lot   = 0.0;
-
+   int total_pos = 0; double total_profit = 0; long grid_type = -1; double extreme_price = 0, highest_lot = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
-      ulong ticket = PositionGetTicket(i);
-      if(PositionGetInteger(POSITION_MAGIC) == InpMagicNum)
+      if(PositionGetTicket(i) > 0 && PositionGetInteger(POSITION_MAGIC) == InpMagicNum)
         {
-         total_pos++;
-         total_profit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-         grid_type     = PositionGetInteger(POSITION_TYPE);
-         double op     = PositionGetDouble(POSITION_PRICE_OPEN);
-         double vol    = PositionGetDouble(POSITION_VOLUME);
-         if(highest_lot < vol) highest_lot = vol;
-         if(grid_type == POSITION_TYPE_BUY)
-            extreme_price = (extreme_price == 0 || op < extreme_price) ? op : extreme_price;
-         else if(grid_type == POSITION_TYPE_SELL)
-            extreme_price = (extreme_price == 0 || op > extreme_price) ? op : extreme_price;
+         total_pos++; total_profit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+         grid_type = PositionGetInteger(POSITION_TYPE); double op = PositionGetDouble(POSITION_PRICE_OPEN);
+         double vol = PositionGetDouble(POSITION_VOLUME); if(highest_lot < vol) highest_lot = vol;
+         if(grid_type == POSITION_TYPE_BUY) extreme_price = (extreme_price == 0 || op < extreme_price) ? op : extreme_price;
+         else extreme_price = (extreme_price == 0 || op > extreme_price) ? op : extreme_price;
         }
      }
 
-   if(total_pos > 0 && total_profit >= InpTargetProfitUSD)
-     {
-      CloseAllPositions();
-      return;
-     }
+   if(total_pos > 0 && total_profit >= InpTargetProfitUSD) { CloseAllPositions(); return; }
 
    if(total_pos > 0)
      {
-      double ask      = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      double bid      = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double distance = InpBaseGridStep * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK), bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double distance = InpBaseGridStep * _Point;
       if(grid_type == POSITION_TYPE_BUY && (extreme_price - ask >= distance))
-         trade.Buy(NormalizeLot(highest_lot * InpLotMultiplier), _Symbol, ask, 0, 0, "Drone Layer [Buy]");
+         trade.Buy(NormalizeLot(highest_lot * InpLotMultiplier), _Symbol, ask, 0, 0, "Grid Layer");
       else if(grid_type == POSITION_TYPE_SELL && (bid - extreme_price >= distance))
-         trade.Sell(NormalizeLot(highest_lot * InpLotMultiplier), _Symbol, bid, 0, 0, "Drone Layer [Sell]");
+         trade.Sell(NormalizeLot(highest_lot * InpLotMultiplier), _Symbol, bid, 0, 0, "Grid Layer");
      }
   }
 
-//+------------------------------------------------------------------+
-//| ON TIMER: ORACLE M1 + SCALPER PULSE + FEEDBACK TRACKER          |
-//+------------------------------------------------------------------+
 void OnTimer()
   {
-   static datetime last_m1_bar   = 0;
-   datetime current_m1_bar       = iTime(_Symbol, PERIOD_M1, 0);
+   static datetime last_m1_bar = 0;
+   datetime current_m1_bar = iTime(_Symbol, PERIOD_M1, 0);
 
-   // SCALPER DRONE PULSE (tiap N menit)
    scalper_tick_count++;
-   if(scalper_tick_count >= InpScalperIntervalMin * 60)
-     {
-      scalper_tick_count = 0;
-      RunScalperDrone();
-     }
+   if(scalper_tick_count >= InpScalperIntervalMin * 60) { scalper_tick_count = 0; RunScalperDrone(); }
 
    if(current_m1_bar == last_m1_bar) return;
    last_m1_bar = current_m1_bar;
 
-   // FEEDBACK TRACKER: Deteksi basket baru ditutup
    int current_pos = GetEAPositionsTotal();
-   static int    last_pos     = 0;
-   static double last_balance = 0;
-
-   if(last_pos == 0 && current_pos > 0)
-      last_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   static int last_pos = 0; static double last_balance = 0;
+   if(last_pos == 0 && current_pos > 0) last_balance = AccountInfoDouble(ACCOUNT_BALANCE);
    else if(last_pos > 0 && current_pos == 0)
      {
       double profit = AccountInfoDouble(ACCOUNT_BALANCE) - last_balance;
       string outcome = (profit > 0) ? "WIN" : (profit == 0 ? "CUT" : "LOSS");
-      // Update win/loss streak
-      if(outcome == "WIN")   { win_streak++;  loss_streak = 0; }
-      else                   { loss_streak++; win_streak  = 0; }
+      if(outcome == "WIN") { win_streak++; loss_streak = 0; } else { loss_streak++; win_streak = 0; }
       SendFeedback(outcome, profit, AccountInfoDouble(ACCOUNT_BALANCE));
      }
    last_pos = current_pos;
 
-   // SKIP AI jika posisi masih berjalan (kecuali setiap 15 menit untuk audit)
-   if(current_pos > 0)
-     {
-      static int skip_count = 0;
-      skip_count++;
-      if(skip_count < 15) return;
-      skip_count = 0;
-     }
-
-   if(!IsActiveSession())
-     {
-      MqlDateTime dt; TimeToStruct(TimeGMT(), dt);
-      Print("💤 [Oracle] UTC ", dt.hour, ":00 — Di luar sesi. (Heartbeat sent)");
-      
-      // Heartbeat sinkronisasi Dashboard 24/5 saat robot tidur
-      string hbPayload = StringFormat("SYMBOL:%s|FLOAT:%.2f|BAL:%.2f|F_MARG:%.2f|POS:%d", 
-                                  _Symbol, AccountInfoDouble(ACCOUNT_PROFIT), AccountInfoDouble(ACCOUNT_BALANCE), 
-                                  AccountInfoDouble(ACCOUNT_MARGIN_FREE), current_pos);
-      char data[], res[];
-      StringToCharArray(hbPayload, data, 0, StringLen(hbPayload));
-      string headers = "Content-Type: text/plain\r\n";
-      string hbUrl = InpServerUrl;
-      if(StringSubstr(hbUrl, StringLen(hbUrl)-1) != "/") hbUrl += "/";
-      hbUrl += "heartbeat";
-      WebRequest("POST", hbUrl, headers, 3000, data, res, headers);
-      
-      return;
-     }
-
-   // === ORACLE DEEP THINKING ===
-   double m1_shift  = (iClose(_Symbol, PERIOD_M1, 1)  - iOpen(_Symbol, PERIOD_M1, 1))  / _Point;
-   double m15_shift = (iClose(_Symbol, PERIOD_M15, 1) - iOpen(_Symbol, PERIOD_M15, 1)) / _Point;
-   double h1_shift  = (iClose(_Symbol, PERIOD_H1, 1)  - iOpen(_Symbol, PERIOD_H1, 1))  / _Point;
-   double ask       = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid       = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   long   spread    = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
-   double floating  = AccountInfoDouble(ACCOUNT_PROFIT);
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double floating = AccountInfoDouble(ACCOUNT_PROFIT);
    double free_marg = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-   double d1_high   = iHigh(_Symbol, PERIOD_D1, 0);
-   double d1_low    = iLow(_Symbol, PERIOD_D1, 0);
 
-   // ATR H1 untuk volatilitas
-   int atr_handle = iATR(_Symbol, PERIOD_H1, 14);
-   double atr_buf[]; ArraySetAsSeries(atr_buf, true);
-   double atr_pips = 0;
-   if(CopyBuffer(atr_handle, 0, 0, 1, atr_buf) > 0)
-      atr_pips = atr_buf[0] / _Point;
-   IndicatorRelease(atr_handle);
+   // Heartbeat Dashboard
+   string hbPayload = StringFormat("SYMBOL:%s|FLOAT:%.2f|BAL:%.2f|F_MARG:%.2f|POS:%d", _Symbol, floating, balance, free_marg, current_pos);
+   char data_hb[], res_hb[];
+   StringToCharArray(hbPayload, data_hb, 0, StringLen(hbPayload));
+   string headers_hb = "Content-Type: text/plain\r\n";
+   WebRequest("POST", InpServerUrl + "heartbeat", headers_hb, 3000, data_hb, res_hb, headers_hb);
 
-   MqlDateTime dt; TimeToStruct(TimeGMT(), dt);
-   string session = (dt.hour >= 13 && dt.hour < 16) ? "LONDON+NY_OVERLAP" :
-                    (dt.hour >= 7  && dt.hour < 16) ? "LONDON" :
-                    (dt.hour >= 16 && dt.hour < 22) ? "NEW_YORK" : "ASIA";
+   if(!IsActiveSession() || current_pos > 0) return;
 
-   // CONFIDENCE SCORE dari win/loss streak untuk dikirim ke server
-   int confidence_bias = 50 + (win_streak * 5) - (loss_streak * 8);
-   confidence_bias = MathMax(10, MathMin(95, confidence_bias));
-
-   Print("⏳ [Oracle v9] ", _Symbol, " | ", session, " | Spread:", spread, " | ATR:", DoubleToString(atr_pips,0), " | WinStreak:", win_streak, " | LossStreak:", loss_streak);
-
-   string portofolio   = StringFormat("POS:%d|FLOAT:%.2f|BAL:%.2f|F_MARG:%.2f|WIN_STREAK:%d|LOSS_STREAK:%d",
-                                       current_pos, floating, balance, free_marg, win_streak, loss_streak);
-   string structure    = StringFormat("D1_H:%.5f|D1_L:%.5f|ASK:%.5f|SPREAD:%d|ATR_PIP:%.0f",
-                                       d1_high, d1_low, ask, spread, atr_pips);
-   string session_info = StringFormat("SESSION:%s|DAILY_START_BAL:%.2f|CONF_BIAS:%d",
-                                       session, daily_start_balance, confidence_bias);
-
-   string reportStruct = StringFormat("SYMBOL:%s PORTFOLIO[%s] STRUCTURE[%s] SESSION[%s] DELTA[M1:%.0f|M15:%.0f|H1:%.0f]",
-                          _Symbol, portofolio, structure, session_info, m1_shift, m15_shift, h1_shift);
-
-   char posData[], result[];
-   string headers = "Content-Type: text/plain\r\n";
-   StringToCharArray(reportStruct, posData, 0, StringLen(reportStruct));
-
-   ResetLastError();
-   int res = WebRequest("POST", InpServerUrl, headers, InpAITimeoutMs, posData, result, headers);
-
-   if(res == 200)
+   // LOCAL RSI ENTRY LOGIC
+   double rsi_buf[]; ArraySetAsSeries(rsi_buf, true);
+   if(CopyBuffer(handle_rsi, 0, 1, 1, rsi_buf) > 0)
      {
-      string answer = CharArrayToString(result);
-      Print("📡 [RAW AI] ", answer);
-      string parts[];
-      int n = StringSplit(answer, '|', parts);
-
-      if(n >= 5)
-        {
-         string action   = parts[0]; StringTrimLeft(action); StringTrimRight(action);
-         double entry_ai = StringToDouble(parts[1]);
-         double sl_ai    = StringToDouble(parts[2]);
-         double tp_ai    = StringToDouble(parts[3]);
-         string reason   = parts[4];
-
-         // Ambil CONFIDENCE dari parts[5] jika ada
-         int    conf     = 50;
-         if(n >= 6 && StringFind(parts[5], "CONFIDENCE:") != -1)
-           {
-            string cv = StringSubstr(parts[5], 11);
-            conf = (int)StringToInteger(cv);
-           }
-
-         // Lot dinamis berdasarkan confidence dari AI
-         double exec_lot = GetDynamicLot();
-         if(conf >= 76) exec_lot = NormalizeLot(exec_lot * 1.5);   // Extra lot saat sangat yakin
-         else if(conf < 50) exec_lot = InpInitialLot;               // Lot minimum saat ragu
-
-         Print("🧠 [Oracle] Action:", action, " | Conf:", conf, "% | Lot:", DoubleToString(exec_lot,2), " | ", reason);
-
-         if(action == "CUT_LOSS_ALL" || action == "CUT_LOSS")
-           {
-            Print("⚠️ [Oracle] CUT LOSS DIJALANKAN!");
-            CloseAllPositions();
-           }
-         else if(action == "HOLD") { /* diam */ }
-         else if(action == "BUY")
-            trade.Buy(exec_lot, _Symbol, ask, sl_ai, tp_ai, "A.I MARKET BUY");
-         else if(action == "SELL")
-            trade.Sell(exec_lot, _Symbol, bid, sl_ai, tp_ai, "A.I MARKET SELL");
-         else if(action == "BUY_LIMIT")
-           {
-            if(HasPendingOrder()) CancelAllPendingOrders();
-            trade.BuyLimit(exec_lot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
-            Print("✅ [Oracle] BUY_LIMIT @ ", DoubleToString(entry_ai, 5));
-           }
-         else if(action == "SELL_LIMIT")
-           {
-            if(HasPendingOrder()) CancelAllPendingOrders();
-            trade.SellLimit(exec_lot, entry_ai, _Symbol, sl_ai, tp_ai, ORDER_TIME_GTC, 0, "A.I LIMIT");
-            Print("✅ [Oracle] SELL_LIMIT @ ", DoubleToString(entry_ai, 5));
-           }
-         else if(action == "AVERAGING_BUY")
-            trade.Buy(NormalizeLot(exec_lot * 1.5), _Symbol, ask, sl_ai, tp_ai, "A.I AVG UP");
-         else if(action == "AVERAGING_SELL")
-            trade.Sell(NormalizeLot(exec_lot * 1.5), _Symbol, bid, sl_ai, tp_ai, "A.I AVG DOWN");
-        }
-      else
-         Print("⚠️ Sinyal Tak Terbaca: ", answer);
-     }
-   else
-     {
-      int err = GetLastError();
-      string errDesc = "";
-      if(err == 4014)   errDesc = "URL tidak di-whitelist!";
-      else if(res == -1) errDesc = "Timeout AI (naikkan InpAITimeoutMs).";
-      else if(res == 404) errDesc = "404: Endpoint tidak ada.";
-      else if(res == 500) errDesc = "500: Server error.";
-      else               errDesc = "Error tak dikenal.";
-      Print("❌ [Oracle] GAGAL! HTTP:", res, " | Err:", err, " → ", errDesc);
+      double rsi_val = rsi_buf[0];
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK), bid = SymbolInfoDouble(_Symbol, SYMBOL_BID), pip = _Point * 10;
+      double exec_lot = GetDynamicLot();
+      if(rsi_val < InpRsiOversold) trade.Buy(exec_lot, _Symbol, ask, ask-(30*pip), ask+(45*pip), "RSI ENTRY");
+      else if(rsi_val > InpRsiOverbought) trade.Sell(exec_lot, _Symbol, bid, bid+(30*pip), bid-(45*pip), "RSI ENTRY");
      }
   }
-//+------------------------------------------------------------------+

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="TradeMachine — VOL_80 analyser and execution dashboard"
+    />
+    <!--
+      No external font CDN on purpose: this dashboard is expected to run on a
+      VPS or a loopback-only machine that may have no outbound internet. The
+      token font stacks fall back to Segoe UI / Consolas, both present on
+      Windows, so nothing blocks first paint.
+    -->
+    <title>TradeMachine · VOL_80</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

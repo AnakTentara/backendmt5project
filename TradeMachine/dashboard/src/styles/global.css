@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Global base styles.
+ *
+ * Kept deliberately thin. Anything reusable belongs in a component, and
+ * anything themeable belongs in `src/design/tokens.ts`. Hex literals here
+ * would bypass the token pipeline and never reach the Flutter theme.
+ */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-surface-base font-sans text-body text-content-secondary antialiased;
+    margin: 0;
+    /* Prevents layout shift when a panel grows past the viewport height. */
+    overflow-y: scroll;
+  }
+
+  /* Numerals must not reflow as they tick. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  /* Visible focus for keyboard users only, so mouse clicks stay clean. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent-base ring-offset-2 ring-offset-surface-base;
+  }
+
+  /* Respect the OS reduced-motion preference. The pulsing "live" indicator is
+     the main offender; it becomes a static dot instead. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Thin scrollbars that match the surface ramp. */
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.surface.borderStrong') transparent;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-surface-borderStrong;
+  }
+}
