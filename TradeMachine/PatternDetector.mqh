@@ -46,11 +46,15 @@ void ScanPatterns_M5() {
     ArraySetAsSeries(rates, true);
     if(CopyRates(_Symbol, PERIOD_M5, 0, 20, rates) < 20) return;
     
+    double rng1 = rates[1].high - rates[1].low;
+    double body1 = MathAbs(rates[1].close - rates[1].open);
+    if(rng1 <= 0 || (body1 / rng1) < 0.50) return; // Require strong conviction breakout bar (body >= 50%)
+    
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     
     // 1. Breakout Long Setup (Donchian breakout on previous closed bar + H1 alignment)
-    if(rates[1].close > g_donchian_high && HigherTFsAlignedBullish()) {
+    if(rates[1].close > g_donchian_high && rates[1].close > rates[1].open && HigherTFsAlignedBullish()) {
         double swing_lo = GetLocalM5SwingLow(Inp_LocalSwingBars);
         if(swing_lo == 0) swing_lo = ask - 200.0;
         double sl_dist = (ask - swing_lo) + Inp_SL_Buffer_Pips;
@@ -70,7 +74,7 @@ void ScanPatterns_M5() {
     }
     
     // 2. Breakout Short Setup (Donchian breakdown on previous closed bar + H1 alignment)
-    if(rates[1].close < g_donchian_low && HigherTFsAlignedBearish()) {
+    if(rates[1].close < g_donchian_low && rates[1].close < rates[1].open && HigherTFsAlignedBearish()) {
         double swing_hi = GetLocalM5SwingHigh(Inp_LocalSwingBars);
         if(swing_hi == 0) swing_hi = bid + 200.0;
         double sl_dist = (swing_hi - bid) + Inp_SL_Buffer_Pips;

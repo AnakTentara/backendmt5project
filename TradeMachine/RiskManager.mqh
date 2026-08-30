@@ -171,16 +171,14 @@ LotSizeResult CalculateLotSize(double entry_price, double sl_price) {
 }
 
 bool CanAddPosition() {
-    int total_buy = 0, total_sell = 0;
+    int total = 0;
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
-        if(ticket > 0 && PositionGetString(POSITION_SYMBOL) == _Symbol) {
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) total_buy++;
-            else total_sell++;
+        if(ticket > 0 && PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == Inp_MagicNumber) {
+            total++;
         }
     }
-    if(total_buy + total_sell >= Inp_MaxPosPerDirection * 2) return false;
-    return true;
+    return (total == 0); // Strict 1-position max: No stacking/averaging
 }
 
 void RiskManager_Update() {

@@ -184,22 +184,11 @@ void EvaluateEntries() {
     
     lots = GetCapAwareLotSize(lots);
     
-    if(IsPositionCapReached(lots)) {
-        TicketSplit split = CalculateSplit(lots, entry_price, sl_price);
-        split.draft = draft;
-        int created = SplitAndExecute(split);
-        if(created > 0) {
-            Log("MULTI-TICKET ENTRY: " + IntegerToString(created) + " tickets for " + DoubleToString(lots, 2) + " lots");
-            g_daily_trades += created;
-            g_last_trade_bar = current_bar;
-        }
-    } else {
-        ulong ticket = OpenPositionDraftMode(entry_price, lots, draft);
-        if(ticket > 0) {
-            RegisterPosition(ticket, draft, -1, 0, 1, (g_last_pattern.type == PATTERN_FLAG_TOP_SELL));
-            g_daily_trades++;
-            g_last_trade_bar = current_bar;
-        }
+    ulong ticket = OpenPositionDraftMode(entry_price, lots, draft);
+    if(ticket > 0) {
+        RegisterPosition(ticket, draft, -1, 0, 1, (g_last_pattern.type == PATTERN_FLAG_TOP_SELL));
+        g_daily_trades++;
+        g_last_trade_bar = current_bar;
     }
     
     // Invalidate pattern after processing to avoid duplicate entries on same bar

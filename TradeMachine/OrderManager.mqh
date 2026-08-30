@@ -5,136 +5,82 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeMachine"
 #property link      "https://haikaldev.my.id"
-#property version   "3.00"
+#property version   "4.00"
+#include <Trade\Trade.mqh>
 #include "Types.mqh"
 #include "Config.mqh"
 #include "RiskManager.mqh"
-#include "TicketSplitter.mqh"
+
+CTrade g_trade;
 
 void OrderManager_Init() {
-    Print("OrderManager: Initialized");
+    g_trade.SetExpertMagicNumber(Inp_MagicNumber);
+    g_trade.SetDeviationInPoints(Inp_MaxSlippage);
+    long fm = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+    if((fm & SYMBOL_FILLING_FOK) == SYMBOL_FILLING_FOK) g_trade.SetTypeFilling(ORDER_FILLING_FOK);
+    else if((fm & SYMBOL_FILLING_IOC) == SYMBOL_FILLING_IOC) g_trade.SetTypeFilling(ORDER_FILLING_IOC);
+    else g_trade.SetTypeFilling(ORDER_FILLING_RETURN);
 }
 
-ENUM_ORDER_TYPE_FILLING GetDynamicFillingMode() {
-    uint fill = (uint)SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
-    if((fill & 1) != 0) return ORDER_FILLING_FOK;
-    if((fill & 2) != 0) return ORDER_FILLING_IOC;
-    return ORDER_FILLING_RETURN;
+ulong ResolvePositionTicket(ulong order_ticket) {
+    if(PositionSelectByTicket(order_ticket)) {
+        if(PositionGetInteger(POSITION_MAGIC) == Inp_MagicNumber) return order_ticket;
+    }
+    if(HistorySelect(TimeCurrent() - 300, TimeCurrent() + 60)) {
+        int n = HistoryDealsTotal();
+        for(int i = n - 1; i >= 0; i--) {
+            ulong d = HistoryDealGetTicket(i);
+            if(d == 0) continue;
+            if((ulong)HistoryDealGetInteger(d, DEAL_ORDER) != order_ticket) continue;
+            ulong pid = (ulong)HistoryDealGetInteger(d, DEAL_POSITION_ID);
+            if(pid != 0 && PositionSelectByTicket(pid)) return pid;
+        }
+    }
+    return 0;
 }
 
 ulong OpenPositionDraftMode(double price, double lots, TPDraft &draft,
                             int split_id = -1, int split_index = 0, int total_splits = 1) {
-    double req_margin;
-    if(!CheckMarginSafety(lots, req_margin)) {
-        Print("ORDER REJECTED: Margin safety failure");
-        return 0;
-    }
-    
-    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     
-    ENUM_ORDER_TYPE order_type = (price >= ask) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+    ENUM_ORDER_TYPE order_type = (draft.tp1_price > price) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
     double exec_price = (order_type == ORDER_TYPE_BUY) ? ask : bid;
+    double sl_norm = NormalizeDouble(draft.sl_plus_price, 0);
     
-    MqlTradeRequest request;
-    ZeroMemory(request);
-    MqlTradeResult result;
-    ZeroMemory(result);
-    
-    request.action = TRADE_ACTION_DEAL;
-    request.magic = Inp_MagicNumber;
-    request.symbol = _Symbol;
-    request.volume = lots;
-    request.price = exec_price;
-    request.type = order_type;
-    request.deviation = Inp_MaxSlippage;
-    request.type_filling = GetDynamicFillingMode();
-    request.type_time = ORDER_TIME_GTC;
-    request.comment = "TM_Draft";
-    
-    // Set initial SL on server for safety, but TP remains 0 (Drafted)
+    bool ok = false;
     if(order_type == ORDER_TYPE_BUY) {
-        request.sl = g_last_pattern.sl_price;
+        ok = g_trade.Buy(lots, _Symbol, exec_price, sl_norm, 0.0, "TM_Buy");
     } else {
-        request.sl = g_last_pattern.sl_price;
+        ok = g_trade.Sell(lots, _Symbol, exec_price, sl_norm, 0.0, "TM_Sell");
     }
-    request.tp = 0;
     
-    if(!OrderSend(request, result)) {
-        int err = GetLastError();
-        Print("ORDER ERROR: ", err, " - Result retcode: ", result.retcode);
+    if(!ok) {
+        Print("ORDER SEND ERROR: ", g_trade.ResultRetcode(), " - ", g_trade.ResultRetcodeDescription());
         return 0;
     }
     
-    ulong ticket = (result.deal > 0) ? result.deal : result.order;
-    Print("ORDER EXECUTED: ", EnumToString(order_type), " ", DoubleToString(lots, 2),
-          " @ ", DoubleToString(exec_price, _Digits), " | Ticket: ", ticket);
+    ulong ticket = ResolvePositionTicket(g_trade.ResultOrder());
+    if(ticket == 0) ticket = g_trade.ResultDeal();
+    
+    // Verify server SL is set
+    if(ticket > 0 && PositionSelectByTicket(ticket)) {
+        double actual_sl = PositionGetDouble(POSITION_SL);
+        if(actual_sl == 0.0 && sl_norm > 0) {
+            g_trade.PositionModify(ticket, sl_norm, 0.0);
+        }
+        Print("ORDER EXECUTED: Ticket ", ticket, " | Lots: ", DoubleToString(lots, 2), " @ ", DoubleToString(exec_price, 0), " SL=", DoubleToString(sl_norm, 0));
+    }
+    
     return ticket;
 }
 
 bool ModifyPositionSL(ulong ticket, double new_sl) {
-    if(!PositionSelectByTicket(ticket)) return false;
-    
-    MqlTradeRequest request;
-    ZeroMemory(request);
-    MqlTradeResult result;
-    ZeroMemory(result);
-    
-    request.action = TRADE_ACTION_SLTP;
-    request.position = ticket;
-    request.symbol = _Symbol;
-    request.sl = new_sl;
-    request.tp = PositionGetDouble(POSITION_TP); // keep current TP (0)
-    
-    if(!OrderSend(request, result)) {
-        Print("MODIFY SL ERROR: ", GetLastError());
-        return false;
-    }
-    return (result.retcode == TRADE_RETCODE_DONE);
+    return g_trade.PositionModify(ticket, NormalizeDouble(new_sl, 0), 0.0);
 }
 
 bool ClosePositionDirect(ulong ticket) {
-    if(!PositionSelectByTicket(ticket)) return false;
-    
-    ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-    double volume = PositionGetDouble(POSITION_VOLUME);
-    double close_price = (pos_type == POSITION_TYPE_BUY) ? 
-                         SymbolInfoDouble(_Symbol, SYMBOL_BID) : 
-                         SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    
-    MqlTradeRequest request;
-    ZeroMemory(request);
-    MqlTradeResult result;
-    ZeroMemory(result);
-    
-    request.action = TRADE_ACTION_DEAL;
-    request.position = ticket;
-    request.symbol = _Symbol;
-    request.volume = volume;
-    request.type = (pos_type == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
-    request.price = close_price;
-    request.deviation = Inp_MaxSlippage;
-    request.type_filling = GetDynamicFillingMode();
-    request.comment = "TM_Close";
-    
-    if(!OrderSend(request, result)) {
-        Print("CLOSE ERROR: ", GetLastError());
-        return false;
-    }
-    return (result.retcode == TRADE_RETCODE_DONE);
+    return g_trade.PositionClose(ticket);
 }
 
-int SplitAndExecute(TicketSplit &split) {
-    int tickets_created = 0;
-    for(int i = 0; i < split.ticket_count; i++) {
-        ulong t = OpenPositionDraftMode(split.entry_price, split.lots_per_ticket, split.draft, split.split_id, i, split.ticket_count);
-        if(t > 0) {
-            split.tickets[tickets_created] = t;
-            tickets_created++;
-        }
-    }
-    return tickets_created;
-}
-
-void ManagePendingOrders() {
-}
+void ManagePendingOrders() {}
