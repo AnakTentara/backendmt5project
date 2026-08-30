@@ -41,14 +41,17 @@ input int    Inp_MaxPosPerDirection = 2;     // Max concurrent same direction
 input bool   Inp_AllowCounterTrend  = true;  // Enable consolidation sells
 
 // ============================================================
-// TP DRAFT SYSTEM
+// TP DRAFT SYSTEM & STOP LOSS GATING
 // ============================================================
 input group "=== TP DRAFT SYSTEM ==="
 input double Inp_TP1_RR             = 1.5;   // TP1 Risk:Reward
 input double Inp_TP2_RR             = 3.0;   // TP2 Risk:Reward
 input double Inp_TP3_TrailingMult   = 1.5;   // TP3 trailing distance (x risk)
 input bool   Inp_UseStructureTP     = true;  // Use S/R for TP override
-input double Inp_SL_Buffer_Pips     = 5;     // SL buffer beyond structure (points)
+input double Inp_SL_Buffer_Pips     = 10.0;  // SL buffer beyond structure (points)
+input double Inp_MinSL_Points       = 150.0; // Minimum SL distance in points (breathing room)
+input double Inp_MaxSL_Points       = 400.0; // Maximum SL distance in points (prevents blowout)
+input int    Inp_LocalSwingBars     = 5;     // Local M5 bars for swing SL calculation
 input double Inp_FlagTop_SL_Pct     = 3.0;   // Flag sell SL % (3-5%)
 input bool   Inp_UseTPDraft         = true;  // Enable draft TP mode (no server TP)
 

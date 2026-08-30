@@ -250,8 +250,6 @@ bool IsCHOCHBearishM5() { return g_market_structure[0].choch_bearish; }
 
 SwingPoint GetLastSwingHigh(int tf_idx) { return g_market_structure[tf_idx].last_high; }
 SwingPoint GetLastSwingLow(int tf_idx)  { return g_market_structure[tf_idx].last_low; }
-SwingPoint GetPrevSwingHigh(int tf_idx) { return g_market_structure[tf_idx].prev_high; }
-SwingPoint GetPrevSwingLow(int tf_idx)  { return g_market_structure[tf_idx].prev_low; }
 
 bool IsConsolidation() {
     return (g_market_structure[0].trend == TREND_NEUTRAL &&
@@ -259,10 +257,7 @@ bool IsConsolidation() {
 }
 
 void PrintMarketStructure() {
-    Print("--- Market Structure ---");
     for(int i=0; i<5; i++) {
-        Print(g_tf_names[i], " Trend: ", EnumToString(g_market_structure[i].trend),
-              " | High: ", DoubleToString(g_market_structure[i].last_high.price, 0),
-              " | Low: ", DoubleToString(g_market_structure[i].last_low.price, 0));
+        Print(g_tf_names[i], " Trend: ", EnumToString(g_market_structure[i].trend));
     }
 }

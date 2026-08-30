@@ -148,7 +148,12 @@ void OnTimer() {
 //+------------------------------------------------------------------+
 //| Evaluate Entries                                                 |
 //+------------------------------------------------------------------+
+datetime g_last_trade_bar = 0;
+
 void EvaluateEntries() {
+    datetime current_bar = iTime(_Symbol, PERIOD_M5, 0);
+    if(current_bar == g_last_trade_bar) return; // Bar-lock: 1 trade per M5 bar max
+    
     if(!CanAddPosition()) return;
     if(ShouldSkipTrade()) return;
     if(!g_last_pattern.is_valid) return;
@@ -186,12 +191,14 @@ void EvaluateEntries() {
         if(created > 0) {
             Log("MULTI-TICKET ENTRY: " + IntegerToString(created) + " tickets for " + DoubleToString(lots, 2) + " lots");
             g_daily_trades += created;
+            g_last_trade_bar = current_bar;
         }
     } else {
         ulong ticket = OpenPositionDraftMode(entry_price, lots, draft);
         if(ticket > 0) {
             RegisterPosition(ticket, draft, -1, 0, 1, (g_last_pattern.type == PATTERN_FLAG_TOP_SELL));
             g_daily_trades++;
+            g_last_trade_bar = current_bar;
         }
     }
     

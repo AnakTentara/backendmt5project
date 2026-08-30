@@ -404,14 +404,17 @@ input int    Inp_MaxPosPerDirection = 2;     // Max concurrent same direction
 input bool   Inp_AllowCounterTrend  = true;  // Enable consolidation sells
 
 // ============================================================
-// TP DRAFT SYSTEM
+// TP DRAFT SYSTEM & STOP LOSS GATING
 // ============================================================
 input group "=== TP DRAFT SYSTEM ==="
 input double Inp_TP1_RR             = 1.5;   // TP1 Risk:Reward
 input double Inp_TP2_RR             = 3.0;   // TP2 Risk:Reward
 input double Inp_TP3_TrailingMult   = 1.5;   // TP3 trailing distance (x risk)
 input bool   Inp_UseStructureTP     = true;  // Use S/R for TP override
-input double Inp_SL_Buffer_Pips     = 5;     // SL buffer beyond structure (points)
+input double Inp_SL_Buffer_Pips     = 10.0;  // SL buffer beyond structure (points)
+input double Inp_MinSL_Points       = 150.0; // Minimum SL distance in points (breathing room)
+input double Inp_MaxSL_Points       = 400.0; // Maximum SL distance in points (prevents blowout)
+input int    Inp_LocalSwingBars     = 5;     // Local M5 bars for swing SL calculation
 input double Inp_FlagTop_SL_Pct     = 3.0;   // Flag sell SL % (3-5%)
 input bool   Inp_UseTPDraft         = true;  // Enable draft TP mode (no server TP)
 
@@ -943,8 +946,6 @@ bool IsCHOCHBearishM5() { return g_market_structure[0].choch_bearish; }
 
 SwingPoint GetLastSwingHigh(int tf_idx) { return g_market_structure[tf_idx].last_high; }
 SwingPoint GetLastSwingLow(int tf_idx)  { return g_market_structure[tf_idx].last_low; }
-SwingPoint GetPrevSwingHigh(int tf_idx) { return g_market_structure[tf_idx].prev_high; }
-SwingPoint GetPrevSwingLow(int tf_idx)  { return g_market_structure[tf_idx].prev_low; }
 
 bool IsConsolidation() {
     return (g_market_structure[0].trend == TREND_NEUTRAL &&
@@ -952,11 +953,8 @@ bool IsConsolidation() {
 }
 
 void PrintMarketStructure() {
-    Print("--- Market Structure ---");
     for(int i=0; i<5; i++) {
-        Print(g_tf_names[i], " Trend: ", EnumToString(g_market_structure[i].trend),
-              " | High: ", DoubleToString(g_market_structure[i].last_high.price, 0),
-              " | Low: ", DoubleToString(g_market_structure[i].last_low.price, 0));
+        Print(g_tf_names[i], " Trend: ", EnumToString(g_market_structure[i].trend));
     }
 }
 '''
@@ -972,14 +970,13 @@ supportresistance_mqh = r'''//+-------------------------------------------------
 //+------------------------------------------------------------------+
 #property copyright "TradeMachine"
 #property link      "https://haikaldev.my.id"
-#property version   "3.00"
+#property version   "4.00"
 #include "Types.mqh"
 #include "Config.mqh"
 #include "MarketStructure.mqh"
 
 SRLevel g_sr_levels[MAX_SR_LEVELS];
 int g_sr_count = 0;
-
 SupplyDemandZone g_zones[MAX_ZONES];
 int g_zone_count = 0;
 
@@ -988,153 +985,34 @@ void SupportResistance_Init() {
     ZeroMemory(g_zones);
     g_sr_count = 0;
     g_zone_count = 0;
-    Print("SupportResistance: Initialized");
 }
 
-double CalculateLevelStrength(SRLevel &level) {
-    double score = level.touches * 2.0;
-    if(level.type == SR_MAJOR) score += 3.0;
-    else if(level.type == SR_MINOR) score += 1.5;
-    return score;
-}
-
-void AddSwingLevel(SwingPoint &sp, SR_LEVEL_TYPE type) {
-    if(sp.price == 0 || !sp.is_confirmed) return;
-    
-    for(int i = 0; i < g_sr_count; i++) {
-        if(MathAbs(g_sr_levels[i].price - sp.price) <= 20.0) {
-            g_sr_levels[i].touches++;
-            g_sr_levels[i].last_touch_time = sp.time;
-            g_sr_levels[i].strength = CalculateLevelStrength(g_sr_levels[i]);
-            return;
-        }
+double GetLocalM5SwingLow(int bars=5) {
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    if(CopyRates(_Symbol, PERIOD_M5, 0, bars + 2, rates) < bars + 2) return 0.0;
+    double lo = rates[1].low;
+    for(int i = 2; i <= bars; i++) {
+        if(rates[i].low < lo) lo = rates[i].low;
     }
-    
-    if(g_sr_count < MAX_SR_LEVELS) {
-        SRLevel level;
-        level.price = sp.price;
-        level.type = type;
-        level.touches = 1;
-        level.volume_at_level = sp.volume;
-        level.last_touch_time = sp.time;
-        level.timeframe = sp.timeframe;
-        level.is_active = true;
-        level.strength = CalculateLevelStrength(level);
-        level.bounce_height = 0;
-        level.retest_depth = 0;
-        level.vol80_1to1_confirmed = false;
-        
-        g_sr_levels[g_sr_count] = level;
-        g_sr_count++;
+    return lo;
+}
+
+double GetLocalM5SwingHigh(int bars=5) {
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    if(CopyRates(_Symbol, PERIOD_M5, 0, bars + 2, rates) < bars + 2) return 0.0;
+    double hi = rates[1].high;
+    for(int i = 2; i <= bars; i++) {
+        if(rates[i].high > hi) hi = rates[i].high;
     }
+    return hi;
 }
 
-void UpdateSwingLevels() {
-    SwingPoint sp_h4_h = GetLastSwingHigh(4);
-    SwingPoint sp_h4_l = GetLastSwingLow(4);
-    SwingPoint sp_h1_h = GetLastSwingHigh(3);
-    SwingPoint sp_h1_l = GetLastSwingLow(3);
-    SwingPoint sp_m15_h = GetLastSwingHigh(1);
-    SwingPoint sp_m15_l = GetLastSwingLow(1);
-    SwingPoint sp_m5_h = GetLastSwingHigh(0);
-    SwingPoint sp_m5_l = GetLastSwingLow(0);
-    
-    AddSwingLevel(sp_h4_h, SR_MAJOR);
-    AddSwingLevel(sp_h4_l, SR_MAJOR);
-    AddSwingLevel(sp_h1_h, SR_MAJOR);
-    AddSwingLevel(sp_h1_l, SR_MAJOR);
-    AddSwingLevel(sp_m15_h, SR_MINOR);
-    AddSwingLevel(sp_m15_l, SR_MINOR);
-    AddSwingLevel(sp_m5_h, SR_MICRO);
-    AddSwingLevel(sp_m5_l, SR_MICRO);
-}
-
-void UpdateSupplyDemandZones() {
-    g_zone_count = 0;
-    
-    // Scan recent swings to build zones
-    for(int i = 0; i < g_sr_count && g_zone_count < MAX_ZONES; i++) {
-        if(!g_sr_levels[i].is_active) continue;
-        
-        SupplyDemandZone zone;
-        double p = g_sr_levels[i].price;
-        double buffer = 100.0; // Zone thickness for VOL_80
-        
-        zone.top = p + buffer;
-        zone.bottom = p - buffer;
-        zone.center = p;
-        zone.bars_count = 10;
-        zone.touches = g_sr_levels[i].touches;
-        zone.volume_profile = g_sr_levels[i].volume_at_level;
-        zone.strength = g_sr_levels[i].strength;
-        zone.is_major = (g_sr_levels[i].type == SR_MAJOR);
-        zone.created_time = g_sr_levels[i].last_touch_time;
-        zone.last_test_time = TimeCurrent();
-        zone.is_fresh = (zone.touches <= 1);
-        zone.is_broken = false;
-        
-        double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-        if(bid > zone.top) {
-            zone.type = ZONE_DEMAND;
-        } else {
-            zone.type = ZONE_SUPPLY;
-        }
-        
-        g_zones[g_zone_count] = zone;
-        g_zone_count++;
-    }
-}
-
-void UpdateSupportResistance() {
-    UpdateSwingLevels();
-    UpdateSupplyDemandZones();
-}
-
-bool PriceAtMajorSupply() {
-    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    for(int i = 0; i < g_zone_count; i++) {
-        if(g_zones[i].type == ZONE_SUPPLY && g_zones[i].is_major) {
-            if(ask >= g_zones[i].bottom && ask <= g_zones[i].top + 50) return true;
-        }
-    }
-    return false;
-}
-
-bool PriceAtMajorDemand() {
-    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    for(int i = 0; i < g_zone_count; i++) {
-        if(g_zones[i].type == ZONE_DEMAND && g_zones[i].is_major) {
-            if(bid <= g_zones[i].top && bid >= g_zones[i].bottom - 50) return true;
-        }
-    }
-    return false;
-}
-
-double GetMinorResistance() {
-    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double nearest = DBL_MAX;
-    for(int i = 0; i < g_sr_count; i++) {
-        if(g_sr_levels[i].price > bid && g_sr_levels[i].price < nearest) {
-            nearest = g_sr_levels[i].price;
-        }
-    }
-    return (nearest == DBL_MAX) ? bid + 200 : nearest;
-}
-
-double GetMinorSupport() {
-    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double nearest = 0;
-    for(int i = 0; i < g_sr_count; i++) {
-        if(g_sr_levels[i].price < bid && g_sr_levels[i].price > nearest) {
-            nearest = g_sr_levels[i].price;
-        }
-    }
-    return (nearest == 0) ? bid - 200 : nearest;
-}
-
-void PrintSupportResistance() {
-    Print("--- S/R Levels Count: ", g_sr_count, " | Zones Count: ", g_zone_count, " ---");
-}
+void UpdateSupportResistance() {}
+bool PriceAtMajorSupply() { return false; }
+bool PriceAtMajorDemand() { return false; }
+void PrintSupportResistance() {}
 '''
 save("SupportResistance.mqh", supportresistance_mqh)
 
@@ -1148,7 +1026,7 @@ patterndetector_mqh = r'''//+---------------------------------------------------
 //+------------------------------------------------------------------+
 #property copyright "TradeMachine"
 #property link      "https://haikaldev.my.id"
-#property version   "3.00"
+#property version   "4.00"
 #include "Types.mqh"
 #include "Config.mqh"
 #include "MarketStructure.mqh"
@@ -1160,14 +1038,11 @@ PatternResult g_last_pattern;
 
 double g_donchian_high = 0;
 double g_donchian_low = 0;
-double g_atr_m5 = 0;
-double g_atr_avg_m5 = 0;
 
 void PatternDetector_Init() {
     ZeroMemory(g_current_flag);
     ZeroMemory(g_current_consolidation);
     ZeroMemory(g_last_pattern);
-    Print("PatternDetector: Initialized");
 }
 
 void UpdateDonchian_M5() {
@@ -1175,9 +1050,9 @@ void UpdateDonchian_M5() {
     ArraySetAsSeries(rates, true);
     if(CopyRates(_Symbol, PERIOD_M5, 0, 20, rates) < 20) return;
     
-    double hi = rates[0].high;
-    double lo = rates[0].low;
-    for(int i = 1; i < 20; i++) {
+    double hi = rates[2].high;
+    double lo = rates[2].low;
+    for(int i = 3; i <= 15; i++) {
         if(rates[i].high > hi) hi = rates[i].high;
         if(rates[i].low < lo)  lo = rates[i].low;
     }
@@ -1185,167 +1060,58 @@ void UpdateDonchian_M5() {
     g_donchian_low = lo;
 }
 
-void UpdateATR_M5() {
-    g_atr_m5 = GetATR(0, 0); // M5 ATR
-    if(g_atr_m5 == 0) g_atr_m5 = 1200.0;
-    g_atr_avg_m5 = g_atr_m5;
-}
-
-void DetectFlagPattern() {
-    MqlRates rates[];
-    ArraySetAsSeries(rates, true);
-    if(CopyRates(_Symbol, PERIOD_M5, 0, 30, rates) < 30) return;
-    
-    ZeroMemory(g_current_flag);
-    
-    // Check for 3-bar pole
-    int pole_bars = 0;
-    bool bull_pole = false;
-    bool bear_pole = false;
-    
-    for(int i = 5; i < 15; i++) {
-        double body = MathAbs(rates[i].close - rates[i].open);
-        double range = rates[i].high - rates[i].low;
-        if(range <= 0) continue;
-        
-        if(body / range >= Inp_FlagPoleStrength) {
-            if(rates[i].close > rates[i].open) {
-                bull_pole = true;
-                pole_bars++;
-            } else {
-                bear_pole = true;
-                pole_bars++;
-            }
-        } else {
-            break;
-        }
-    }
-    
-    if(pole_bars >= Inp_FlagMinBars) {
-        g_current_flag.is_valid = true;
-        g_current_flag.is_bull_flag = bull_pole;
-        g_current_flag.is_bear_flag = bear_pole;
-        g_current_flag.flag_top = rates[0].high;
-        g_current_flag.flag_bottom = rates[0].low;
-        g_current_flag.flag_bars = 5;
-        
-        double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-        
-        // Flag top sell logic
-        if(bear_pole && bid >= g_current_flag.flag_top - 50) {
-            g_last_pattern.type = PATTERN_FLAG_TOP_SELL;
-            g_last_pattern.entry_price = bid;
-            g_last_pattern.sl_price = GetMinorResistance() + Inp_SL_Buffer_Pips;
-            g_last_pattern.tp1_price = bid - MathAbs(bid - g_last_pattern.sl_price) * Inp_RR_FlagTopSell;
-            g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
-            g_last_pattern.tp2_price = bid - MathAbs(bid - g_last_pattern.sl_price) * Inp_TP2_RR;
-            g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
-            g_last_pattern.confidence = 80;
-            g_last_pattern.is_valid = true;
-            g_last_pattern.detected_time = TimeCurrent();
-            g_last_pattern.bars_duration = 5;
-        }
-    }
-}
-
-void DetectConsolidation() {
-    MqlRates rates[];
-    ArraySetAsSeries(rates, true);
-    if(CopyRates(_Symbol, PERIOD_M5, 0, 25, rates) < 25) return;
-    
-    ZeroMemory(g_current_consolidation);
-    double width = g_donchian_high - g_donchian_low;
-    
-    if(width < g_atr_avg_m5 * Inp_ATRContractionMult && width > 0) {
-        g_current_consolidation.is_valid = true;
-        g_current_consolidation.top = g_donchian_high;
-        g_current_consolidation.bottom = g_donchian_low;
-        g_current_consolidation.bars = 10;
-        g_current_consolidation.atr_ratio = width / g_atr_avg_m5;
-        g_current_consolidation.start_time = rates[10].time;
-    }
-}
-
-void DetectStructureBreakouts() {
-    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double current = (bid + ask) / 2.0;
-    
-    if(g_current_consolidation.is_valid) {
-        if(current > g_current_consolidation.top + 20) {
-            g_last_pattern.type = PATTERN_BASE_BREAKOUT_UP;
-            g_last_pattern.entry_price = ask;
-            g_last_pattern.sl_price = g_current_consolidation.bottom - Inp_SL_Buffer_Pips;
-            g_last_pattern.tp1_price = ask + MathAbs(ask - g_last_pattern.sl_price) * Inp_RR_FlagBreakout;
-            g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
-            g_last_pattern.tp2_price = ask + MathAbs(ask - g_last_pattern.sl_price) * Inp_TP2_RR;
-            g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
-            g_last_pattern.confidence = 75;
-            g_last_pattern.is_valid = true;
-            g_last_pattern.detected_time = TimeCurrent();
-            g_last_pattern.bars_duration = g_current_consolidation.bars;
-        } else if(current < g_current_consolidation.bottom - 20) {
-            g_last_pattern.type = PATTERN_BASE_BREAKOUT_DOWN;
-            g_last_pattern.entry_price = bid;
-            g_last_pattern.sl_price = g_current_consolidation.top + Inp_SL_Buffer_Pips;
-            g_last_pattern.tp1_price = bid - MathAbs(g_last_pattern.sl_price - bid) * Inp_RR_FlagBreakout;
-            g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
-            g_last_pattern.tp2_price = bid - MathAbs(g_last_pattern.sl_price - bid) * Inp_TP2_RR;
-            g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
-            g_last_pattern.confidence = 75;
-            g_last_pattern.is_valid = true;
-            g_last_pattern.detected_time = TimeCurrent();
-            g_last_pattern.bars_duration = g_current_consolidation.bars;
-        }
-    }
-}
-
-void DetectSDRetestConfirmation() {
-    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    
-    // Retest of broken supply zone (now demand) + green bullish confirmation -> BEST BUY
-    for(int i = 0; i < g_zone_count; i++) {
-        if(g_zones[i].type == ZONE_DEMAND) {
-            if(bid >= g_zones[i].bottom && bid <= g_zones[i].top + 50) {
-                MqlRates rates[];
-                ArraySetAsSeries(rates, true);
-                if(CopyRates(_Symbol, PERIOD_M5, 0, 2, rates) >= 2) {
-                    if(rates[0].close > rates[0].open) { // Green confirmation bar
-                        g_last_pattern.type = PATTERN_SD_RETEST_BUY;
-                        g_last_pattern.entry_price = ask;
-                        g_last_pattern.sl_price = g_zones[i].bottom - Inp_SL_Buffer_Pips;
-                        g_last_pattern.tp1_price = ask + MathAbs(ask - g_last_pattern.sl_price) * Inp_RR_BullishTrend;
-                        g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
-                        g_last_pattern.tp2_price = ask + MathAbs(ask - g_last_pattern.sl_price) * Inp_TP2_RR;
-                        g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
-                        g_last_pattern.confidence = 90;
-                        g_last_pattern.is_valid = true;
-                        g_last_pattern.detected_time = TimeCurrent();
-                        g_last_pattern.bars_duration = 2;
-                        return;
-                    }
-                }
-            }
-        }
-    }
-}
-
 void ScanPatterns_M5() {
     UpdateDonchian_M5();
-    UpdateATR_M5();
     
-    DetectFlagPattern();
-    DetectConsolidation();
-    DetectStructureBreakouts();
-    DetectSDRetestConfirmation();
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    if(CopyRates(_Symbol, PERIOD_M5, 0, 20, rates) < 20) return;
+    
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    
+    // 1. Breakout Long Setup (Donchian breakout on previous closed bar + H1 alignment)
+    if(rates[1].close > g_donchian_high && HigherTFsAlignedBullish()) {
+        double swing_lo = GetLocalM5SwingLow(Inp_LocalSwingBars);
+        if(swing_lo == 0) swing_lo = ask - 200.0;
+        double sl_dist = (ask - swing_lo) + Inp_SL_Buffer_Pips;
+        sl_dist = MathMax(Inp_MinSL_Points, MathMin(Inp_MaxSL_Points, sl_dist));
+        
+        g_last_pattern.type = PATTERN_BASE_BREAKOUT_UP;
+        g_last_pattern.entry_price = ask;
+        g_last_pattern.sl_price = NormalizeDouble(ask - sl_dist, 0);
+        g_last_pattern.tp1_price = NormalizeDouble(ask + sl_dist * Inp_TP1_RR, 0);
+        g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
+        g_last_pattern.tp2_price = NormalizeDouble(ask + sl_dist * Inp_TP2_RR, 0);
+        g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
+        g_last_pattern.confidence = 85;
+        g_last_pattern.is_valid = true;
+        g_last_pattern.detected_time = TimeCurrent();
+        return;
+    }
+    
+    // 2. Breakout Short Setup (Donchian breakdown on previous closed bar + H1 alignment)
+    if(rates[1].close < g_donchian_low && HigherTFsAlignedBearish()) {
+        double swing_hi = GetLocalM5SwingHigh(Inp_LocalSwingBars);
+        if(swing_hi == 0) swing_hi = bid + 200.0;
+        double sl_dist = (swing_hi - bid) + Inp_SL_Buffer_Pips;
+        sl_dist = MathMax(Inp_MinSL_Points, MathMin(Inp_MaxSL_Points, sl_dist));
+        
+        g_last_pattern.type = PATTERN_BASE_BREAKOUT_DOWN;
+        g_last_pattern.entry_price = bid;
+        g_last_pattern.sl_price = NormalizeDouble(bid + sl_dist, 0);
+        g_last_pattern.tp1_price = NormalizeDouble(bid - sl_dist * Inp_TP1_RR, 0);
+        g_last_pattern.tp1_draft = g_last_pattern.tp1_price;
+        g_last_pattern.tp2_price = NormalizeDouble(bid - sl_dist * Inp_TP2_RR, 0);
+        g_last_pattern.tp2_draft = g_last_pattern.tp2_price;
+        g_last_pattern.confidence = 85;
+        g_last_pattern.is_valid = true;
+        g_last_pattern.detected_time = TimeCurrent();
+        return;
+    }
 }
 
-void PrintPatterns() {
-    Print("--- Last Pattern: ", EnumToString(g_last_pattern.type),
-          " | Valid: ", g_last_pattern.is_valid,
-          " | Confidence: ", g_last_pattern.confidence, "% ---");
-}
+void PrintPatterns() {}
 '''
 save("PatternDetector.mqh", patterndetector_mqh)
 
@@ -2273,7 +2039,12 @@ void OnTimer() {
 //+------------------------------------------------------------------+
 //| Evaluate Entries                                                 |
 //+------------------------------------------------------------------+
+datetime g_last_trade_bar = 0;
+
 void EvaluateEntries() {
+    datetime current_bar = iTime(_Symbol, PERIOD_M5, 0);
+    if(current_bar == g_last_trade_bar) return; // Bar-lock: 1 trade per M5 bar max
+    
     if(!CanAddPosition()) return;
     if(ShouldSkipTrade()) return;
     if(!g_last_pattern.is_valid) return;
@@ -2311,12 +2082,14 @@ void EvaluateEntries() {
         if(created > 0) {
             Log("MULTI-TICKET ENTRY: " + IntegerToString(created) + " tickets for " + DoubleToString(lots, 2) + " lots");
             g_daily_trades += created;
+            g_last_trade_bar = current_bar;
         }
     } else {
         ulong ticket = OpenPositionDraftMode(entry_price, lots, draft);
         if(ticket > 0) {
             RegisterPosition(ticket, draft, -1, 0, 1, (g_last_pattern.type == PATTERN_FLAG_TOP_SELL));
             g_daily_trades++;
+            g_last_trade_bar = current_bar;
         }
     }
     
