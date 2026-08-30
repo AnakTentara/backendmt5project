@@ -39,14 +39,14 @@ ulong ResolvePositionTicket(ulong order_ticket) {
     return 0;
 }
 
-ulong OpenPositionDraftMode(double price, double lots, TPDraft &draft,
+ulong OpenPositionDraftMode(double price, double lots, double sl_price, TPDraft &draft,
                             int split_id = -1, int split_index = 0, int total_splits = 1) {
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     
     ENUM_ORDER_TYPE order_type = (draft.tp1_price > price) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
     double exec_price = (order_type == ORDER_TYPE_BUY) ? ask : bid;
-    double sl_norm = NormalizeDouble(draft.sl_plus_price, 0);
+    double sl_norm = NormalizeDouble(sl_price, 0);
     
     // In Market Execution brokers, initial order MUST have sl=0, tp=0 to prevent error 10016
     bool ok = false;
@@ -78,7 +78,7 @@ ulong OpenPositionDraftMode(double price, double lots, TPDraft &draft,
         if(g_trade.PositionModify(ticket, sl_norm, 0.0)) {
             Print("ORDER EXECUTED & SL ATTACHED: Ticket ", ticket, " | Lots: ", DoubleToString(lots, 2), " @ ", DoubleToString(exec_price, 0), " SL=", DoubleToString(sl_norm, 0));
         } else {
-            Print("ORDER EXECUTED: Ticket ", ticket, " (SL modify note: ", g_trade.ResultRetcode(), ")");
+            Print("ORDER EXECUTED: Ticket ", ticket, " (SL modify note: ", g_trade.ResultRetcode(), " - ", g_trade.ResultRetcodeDescription(), ")");
         }
     }
     

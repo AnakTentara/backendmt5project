@@ -185,7 +185,7 @@ void EvaluateEntries() {
     lots = GetCapAwareLotSize(lots);
     
     g_last_trade_bar = current_bar;
-    ulong ticket = OpenPositionDraftMode(entry_price, lots, draft);
+    ulong ticket = OpenPositionDraftMode(entry_price, lots, sl_price, draft);
     if(ticket > 0) {
         RegisterPosition(ticket, draft, -1, 0, 1, (g_last_pattern.type == PATTERN_FLAG_TOP_SELL));
         g_daily_trades++;
