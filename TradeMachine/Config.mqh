@@ -41,6 +41,14 @@ input int    Inp_MaxPosPerDirection = 2;     // Max concurrent same direction
 input bool   Inp_AllowCounterTrend  = true;  // Enable consolidation sells
 
 // ============================================================
+// DAILY CIRCUIT BREAKER (EMERGENCY SAFETY)
+// ============================================================
+input group "=== DAILY CIRCUIT BREAKER ==="
+input double Inp_MaxDailyLossPercent = 10.0; // Max daily loss/floating minus % before halt
+input int    Inp_ResumeHour_GMT7     = 12;   // Resume trading hour (12:00 WIB / GMT+7) next day
+input bool   Inp_UseCircuitBreaker   = true; // Enable automatic emergency pause
+
+// ============================================================
 // SUPPLY / DEMAND WAVE RIDER
 // ============================================================
 input group "=== SUPPLY / DEMAND WAVE RIDER ==="

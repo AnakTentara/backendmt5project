@@ -6,6 +6,7 @@
 #property copyright "TradeMachine"
 #property link      "https://haikaldev.my.id"
 #property version   "3.00"
+#include <Trade\Trade.mqh>
 #include "Types.mqh"
 #include "Config.mqh"
 #include "MarketStructure.mqh"
@@ -170,7 +171,72 @@ LotSizeResult CalculateLotSize(double entry_price, double sl_price) {
     return result;
 }
 
+bool g_circuit_breaker_active = false;
+datetime g_resume_trade_time = 0;
+double g_daily_start_balance = 0;
+int g_last_day_circuit = -1;
+
+void CheckDailyCircuitBreaker() {
+    if(!Inp_UseCircuitBreaker) return;
+    
+    datetime current_time = TimeCurrent();
+    
+    // Check if we are currently halted
+    if(g_circuit_breaker_active) {
+        if(current_time >= g_resume_trade_time) {
+            g_circuit_breaker_active = false;
+            g_daily_start_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+            Print("CIRCUIT BREAKER: Cooldown completed! Trading RESUMED at ", TimeToString(current_time));
+        } else {
+            return; // Still halted
+        }
+    }
+    
+    MqlDateTime dt;
+    TimeToStruct(current_time, dt);
+    if(g_daily_start_balance <= 0 || dt.day != g_last_day_circuit) {
+        g_daily_start_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+        g_last_day_circuit = dt.day;
+    }
+    
+    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double start_bal = (g_daily_start_balance > 0) ? g_daily_start_balance : AccountInfoDouble(ACCOUNT_BALANCE);
+    
+    // If floating minus / drawdown reaches >= 10%
+    double max_loss_amount = start_bal * (Inp_MaxDailyLossPercent / 100.0);
+    double current_drawdown = start_bal - equity;
+    
+    if(current_drawdown >= max_loss_amount) {
+        Print("EMERGENCY CIRCUIT BREAKER ACTIVATED! Drawdown: -", DoubleToString(current_drawdown, 2), 
+              " (>= ", DoubleToString(Inp_MaxDailyLossPercent, 1), "% of initial balance ", DoubleToString(start_bal, 2), ")");
+        
+        // 1. Close all active positions immediately
+        CTrade rm_trade;
+        for(int i = PositionsTotal() - 1; i >= 0; i--) {
+            ulong t = PositionGetTicket(i);
+            if(t > 0 && PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == Inp_MagicNumber) {
+                rm_trade.PositionClose(t);
+            }
+        }
+        
+        // 2. Calculate next day 12:00 GMT+7 (WIB) in broker server time
+        datetime next_midnight = current_time - (current_time % 86400) + 86400;
+        int server_gmt_offset = 2; // Default MT5 broker server time GMT+2
+        int gmt7_diff = 7 - server_gmt_offset; // 5 hours diff
+        int resume_server_hour = Inp_ResumeHour_GMT7 - gmt7_diff; // 12 - 5 = 07:00 server time
+        if(resume_server_hour < 0) resume_server_hour += 24;
+        
+        g_resume_trade_time = next_midnight + (resume_server_hour * 3600);
+        g_circuit_breaker_active = true;
+        
+        Print("CIRCUIT BREAKER: All trades closed. Trading HALTED until tomorrow 12:00 WIB (Server Time: ", TimeToString(g_resume_trade_time), ")");
+    }
+}
+
 bool CanAddPosition() {
+    CheckDailyCircuitBreaker();
+    if(g_circuit_breaker_active) return false;
+    
     int total = 0;
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
@@ -183,6 +249,7 @@ bool CanAddPosition() {
 
 void RiskManager_Update() {
     CheckDailyReset();
+    CheckDailyCircuitBreaker();
 }
 
 void CheckRiskAlerts() {
