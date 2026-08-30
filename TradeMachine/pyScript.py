@@ -1636,11 +1636,12 @@ ulong OpenPositionDraftMode(double price, double lots, TPDraft &draft,
     double exec_price = (order_type == ORDER_TYPE_BUY) ? ask : bid;
     double sl_norm = NormalizeDouble(draft.sl_plus_price, 0);
     
+    // In Market Execution brokers, initial order MUST have sl=0, tp=0 to prevent error 10016
     bool ok = false;
     if(order_type == ORDER_TYPE_BUY) {
-        ok = g_trade.Buy(lots, _Symbol, exec_price, sl_norm, 0.0, "TM_Buy");
+        ok = g_trade.Buy(lots, _Symbol, exec_price, 0.0, 0.0, "TM_Buy");
     } else {
-        ok = g_trade.Sell(lots, _Symbol, exec_price, sl_norm, 0.0, "TM_Sell");
+        ok = g_trade.Sell(lots, _Symbol, exec_price, 0.0, 0.0, "TM_Sell");
     }
     
     if(!ok) {
@@ -1650,14 +1651,23 @@ ulong OpenPositionDraftMode(double price, double lots, TPDraft &draft,
     
     ulong ticket = ResolvePositionTicket(g_trade.ResultOrder());
     if(ticket == 0) ticket = g_trade.ResultDeal();
-    
-    // Verify server SL is set
-    if(ticket > 0 && PositionSelectByTicket(ticket)) {
-        double actual_sl = PositionGetDouble(POSITION_SL);
-        if(actual_sl == 0.0 && sl_norm > 0) {
-            g_trade.PositionModify(ticket, sl_norm, 0.0);
+    if(ticket == 0) {
+        for(int i = PositionsTotal() - 1; i >= 0; i--) {
+            ulong pt = PositionGetTicket(i);
+            if(pt > 0 && PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == Inp_MagicNumber) {
+                ticket = pt;
+                break;
+            }
         }
-        Print("ORDER EXECUTED: Ticket ", ticket, " | Lots: ", DoubleToString(lots, 2), " @ ", DoubleToString(exec_price, 0), " SL=", DoubleToString(sl_norm, 0));
+    }
+    
+    // Attach Hard Server Stop Loss via PositionModify
+    if(ticket > 0 && sl_norm > 0) {
+        if(g_trade.PositionModify(ticket, sl_norm, 0.0)) {
+            Print("ORDER EXECUTED & SL ATTACHED: Ticket ", ticket, " | Lots: ", DoubleToString(lots, 2), " @ ", DoubleToString(exec_price, 0), " SL=", DoubleToString(sl_norm, 0));
+        } else {
+            Print("ORDER EXECUTED: Ticket ", ticket, " (SL modify note: ", g_trade.ResultRetcode(), ")");
+        }
     }
     
     return ticket;
@@ -2089,11 +2099,11 @@ void EvaluateEntries() {
     
     lots = GetCapAwareLotSize(lots);
     
+    g_last_trade_bar = current_bar;
     ulong ticket = OpenPositionDraftMode(entry_price, lots, draft);
     if(ticket > 0) {
         RegisterPosition(ticket, draft, -1, 0, 1, (g_last_pattern.type == PATTERN_FLAG_TOP_SELL));
         g_daily_trades++;
-        g_last_trade_bar = current_bar;
     }
     
     // Invalidate pattern after processing to avoid duplicate entries on same bar
